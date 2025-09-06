@@ -1,13 +1,12 @@
-import React, { useState, useCallback, RefObject } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import type { SentenceAnalysisData, SentenceComponentType, SentenceComponent } from '../../types';
 import AnalyzedWord from './AnalyzedWord';
 import Tooltip from '../EnglishCorner/Tooltip';
-import { TranslationIcon, EyeIcon, EyeOffIcon } from '../icons';
+import { TranslationIcon } from '../icons';
 
 interface SentenceAnalysisCardProps {
     data: SentenceAnalysisData | undefined;
     isLoading: boolean;
-    containerRef: RefObject<HTMLDivElement>;
 }
 
 const COMPONENT_COLORS: Record<SentenceComponentType, { bg: string; text: string }> = {
@@ -22,22 +21,23 @@ const COMPONENT_COLORS: Record<SentenceComponentType, { bg: string; text: string
     connective: { bg: 'bg-slate-200', text: 'text-slate-700' },
 };
 
-const SentenceAnalysisCard: React.FC<SentenceAnalysisCardProps> = ({ data, isLoading, containerRef }) => {
+const SentenceAnalysisCard: React.FC<SentenceAnalysisCardProps> = ({ data, isLoading }) => {
     const [isAnalyzed, setIsAnalyzed] = useState(false);
     const [activeComponent, setActiveComponent] = useState<SentenceComponent | null>(null);
     const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number } | null>(null);
+    const selfRef = useRef<HTMLDivElement>(null);
 
     const handleComponentEnter = useCallback((component: SentenceComponent, event: React.MouseEvent<HTMLSpanElement>) => {
-        if (!containerRef.current) return;
+        if (!selfRef.current) return;
         const spanRect = event.currentTarget.getBoundingClientRect();
-        const containerRect = containerRef.current.getBoundingClientRect();
+        const containerRect = selfRef.current.getBoundingClientRect();
 
         setActiveComponent(component);
         setTooltipPosition({
             top: spanRect.top - containerRect.top - 10,
             left: spanRect.left - containerRect.left + spanRect.width / 2,
         });
-    }, [containerRef]);
+    }, []);
 
     const handleComponentLeave = useCallback(() => {
         setActiveComponent(null);
@@ -63,20 +63,22 @@ const SentenceAnalysisCard: React.FC<SentenceAnalysisCardProps> = ({ data, isLoa
         return (
             <p className="text-lg leading-relaxed">
                 {data.components.map((component, index) => (
-                    <AnalyzedWord
-                        key={index}
-                        text={component.text}
-                        colorClasses={COMPONENT_COLORS[component.type] || COMPONENT_COLORS.phrase}
-                        onMouseEnter={(e) => handleComponentEnter(component, e)}
-                        onMouseLeave={handleComponentLeave}
-                    />
+                    <React.Fragment key={index}>
+                        <AnalyzedWord
+                            text={component.text}
+                            colorClasses={COMPONENT_COLORS[component.type] || COMPONENT_COLORS.phrase}
+                            onMouseEnter={(e) => handleComponentEnter(component, e)}
+                            onMouseLeave={handleComponentLeave}
+                        />
+                        {' '}
+                    </React.Fragment>
                 ))}
             </p>
         );
     };
 
     return (
-        <div className="relative">
+        <div ref={selfRef} className="relative">
              <Tooltip annotation={activeComponent} position={tooltipPosition} />
             <div className="space-y-4">
                 {renderSentence()}

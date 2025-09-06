@@ -191,8 +191,8 @@ ${context}
                             </div>
                         ) : (
                              <div className="space-y-2 text-amber-900/90 leading-relaxed animate-fadeIn">
-                                {summaryPart && <p><SimpleMarkdownRenderer text={summaryPart.trim()} /></p>}
-                                {suggestionPart && <p><SimpleMarkdownRenderer text={suggestionPart.trim()} /></p>}
+                                {summaryPart && <p><SimpleMarkdownRenderer text={summaryPart.trim()} highlightClassName="font-bold text-amber-800" /></p>}
+                                {suggestionPart && <p><SimpleMarkdownRenderer text={suggestionPart.trim()} highlightClassName="font-bold text-amber-800" /></p>}
                              </div>
                         )}
                     </div>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { GEMINI_API_KEY_B64 } from '../../apiKey';
 import { DAILY_NOTES, FUN_FACTS } from '../../constants';
+import { FALLBACK_BRIEFING_CONTENTS, FALLBACK_SENTENCE_DATA } from '../../constants/fallbackContent';
 import { 
     BookIcon, PoliticsIcon, MedicineIcon, SparklesIcon, ClockIcon, JournalIcon, PuzzleIcon,
     RefreshIcon, SpinnerIcon, FeatherIcon, LightbulbIcon, TranslationIcon
@@ -129,9 +130,13 @@ ${prompts.word}`;
             required: ['sentence', 'translation', 'components']
         };
 
+        const TIMEOUT_DURATION = 40000; // 40 seconds
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('timeout')), TIMEOUT_DURATION)
+        );
+
         try {
-            // Fetch briefing and sentence in parallel
-            const [briefingResponse, sentenceResponse] = await Promise.all([
+            const generationPromise = Promise.all([
                 (forceRefresh || !briefingCache) ? ai.models.generateContent({ model: 'gemini-2.5-flash', contents: combinedPrompt }) : Promise.resolve(null),
                 (forceRefresh || !sentenceCache) ? ai.models.generateContent({
                     model: 'gemini-2.5-flash',
@@ -139,6 +144,12 @@ ${prompts.word}`;
                     config: { responseMimeType: "application/json", responseSchema: sentenceResponseSchema }
                 }) : Promise.resolve(null)
             ]);
+
+            const [briefingResponse, sentenceResponse] = await Promise.race([
+                generationPromise,
+                timeoutPromise,
+            ]) as [any, any];
+
 
             if (briefingResponse) {
                 const fullText = briefingResponse.text;
@@ -168,7 +179,27 @@ ${prompts.word}`;
             }
 
         } catch (err) {
-            console.error("Briefing/Sentence generation failed:", err);
+            if (err instanceof Error && err.message === 'timeout') {
+                console.warn('AI generation timed out. Using fallback content.');
+                if (forceRefresh || !briefingCache) {
+                    const fallbackContent = getRandomItem(FALLBACK_BRIEFING_CONTENTS);
+                    const newCache: BriefingCache = {
+                        content: fallbackContent,
+                        dailyNote: getRandomItem(DAILY_NOTES),
+                        timestamp: Date.now()
+                    };
+                    setBriefingCache(newCache);
+                    localStorage.setItem('aiDashboardBriefing', JSON.stringify(newCache));
+                }
+                if (forceRefresh || !sentenceCache) {
+                    const fallbackSentence = getRandomItem(FALLBACK_SENTENCE_DATA);
+                    const newSentenceCache: SentenceCache = { content: fallbackSentence, timestamp: Date.now() };
+                    setSentenceCache(newSentenceCache);
+                    localStorage.setItem('aiDashboardSentence', JSON.stringify(newSentenceCache));
+                }
+            } else {
+                 console.error("Briefing/Sentence generation failed:", err);
+            }
         } finally {
             setIsBriefingLoading(false);
             setIsSentenceLoading(false);
@@ -232,9 +263,47 @@ ${prompts.word}`;
     
     const ClarificationRenderer = ({ content }: { content: string }) => {
         if (!content) return <div className="h-full bg-slate-200 rounded animate-pulse"></div>;
+    
+        const match = content.match(/\*\*(.*?)\*\*.*?\*\*(.*?)\*\*:\s*([\s\S]*)/);
+    
+        if (!match) {
+            return (
+                <div className="text-lg text-left">
+                    <SimpleMarkdownRenderer text={content} highlightClassName="font-bold text-amber-800" />
+                </div>
+            );
+        }
+    
+        const [, term1, term2, explanation] = match;
+    
+        const highlightExplanation = (text: string, t1: string, t2: string) => {
+            const base1 = t1.replace('矛盾', '');
+            const base2 = t2.replace('矛盾', '');
+            
+            const regex = new RegExp(`(${base1}|${base2})`, 'g');
+            const parts = text.split(regex);
+    
+            return parts.map((part, index) => {
+                if (part === base1) {
+                    return <strong key={index} className="font-semibold text-green-700">{part}</strong>;
+                }
+                if (part === base2) {
+                    return <strong key={index} className="font-semibold text-purple-700">{part}</strong>;
+                }
+                return part;
+            });
+        };
+    
         return (
-            <div className="text-lg">
-                <SimpleMarkdownRenderer text={content} />
+            <div className="text-left flex flex-col justify-center h-full text-lg">
+                <p className="text-2xl tracking-tight mb-4">
+                    <strong className="font-bold text-green-700">{term1}</strong>
+                    <span className="font-semibold text-slate-600 mx-2">与</span>
+                    <strong className="font-bold text-purple-700">{term2}</strong>
+                </p>
+                <div className="text-slate-700 leading-relaxed pt-4 border-t border-slate-200/80">
+                    {highlightExplanation(explanation, term1, term2)}
+                </div>
             </div>
         );
     };
@@ -293,7 +362,7 @@ ${prompts.word}`;
         return (
             <div className="mt-4 space-y-4">
                 <div className="whitespace-pre-wrap text-slate-700 leading-relaxed">
-                   <SimpleMarkdownRenderer text={questionPart?.trim() || ''} />
+                   <SimpleMarkdownRenderer text={questionPart?.trim() || ''} highlightClassName="font-bold text-indigo-800" />
                 </div>
                  <button onClick={() => setShowQuestionAnswer(!showQuestionAnswer)} className="text-sm font-semibold text-indigo-600 bg-indigo-100 px-3 py-1 rounded-full hover:bg-indigo-200">
                     {showQuestionAnswer ? '隐藏答案' : '显示答案'}
@@ -301,7 +370,7 @@ ${prompts.word}`;
                 {showQuestionAnswer && (
                     <div className="p-4 bg-slate-50 rounded-lg border animate-fadeIn">
                         <div className="whitespace-pre-wrap text-slate-800 leading-relaxed">
-                            <SimpleMarkdownRenderer text={answerPart?.trim() || '答案解析加载失败。'} />
+                            <SimpleMarkdownRenderer text={answerPart?.trim() || '答案解析加载失败。'} highlightClassName="font-bold text-indigo-800" />
                         </div>
                     </div>
                 )}
@@ -371,15 +440,23 @@ ${prompts.word}`;
                 </div>
                 <div className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-                         <BriefingCard title="今日重点" icon={<FeatherIcon className="h-6 w-6 mr-2 text-green-500"/>}>
+                         <BriefingCard title="今日重点" icon={<FeatherIcon className="h-6 w-6 mr-2 text-green-500"/>} className="md:col-span-1">
                             <FocusRenderer content={briefingCache?.content.focus || ''} />
                          </BriefingCard>
-                         <BriefingCard title="每日寄语" icon={<SparklesIcon className="h-6 w-6 mr-2 text-rose-500"/>} isNote={true}>
-                            {briefingCache ? <p className="text-2xl leading-relaxed text-center break-words [word-break:break-word]">{briefingCache.dailyNote.replace('考研人的每日寄语：', '')}</p> : <div className="h-full bg-slate-200 rounded animate-pulse"></div>}
+                         <BriefingCard title="每日寄语" icon={<SparklesIcon className="h-6 w-6 mr-2 text-rose-500"/>} isNote={true} className="md:col-span-1">
+                            {briefingCache ? (
+                                <div className="text-2xl leading-relaxed text-left">
+                                    {briefingCache.dailyNote.replace('考研人的每日寄语：', '').split(/(?<=[，。！？、；：])/)
+                                      .filter(s => s.trim())
+                                      .map((line, index) => (
+                                        <span key={index} className="block opacity-0 animate-fadeIn" style={{ animationDelay: `${index * 200}ms` }}>{line.trim()}</span>
+                                    ))}
+                                </div>
+                            ) : <div className="h-full bg-slate-200 rounded animate-pulse"></div>}
                          </BriefingCard>
                     </div>
                      <BriefingCard title="每日长难句" icon={<BookIcon className="h-6 w-6 mr-2 text-purple-500"/>}>
-                        <SentenceAnalysisCard data={sentenceCache?.content} isLoading={isSentenceLoading} containerRef={briefingRef} />
+                        <SentenceAnalysisCard data={sentenceCache?.content} isLoading={isSentenceLoading} />
                      </BriefingCard>
                      <BriefingCard title="概念辨析" icon={<LightbulbIcon className="h-6 w-6 mr-2 text-amber-500"/>} className="min-h-0">
                         <ClarificationRenderer content={briefingCache?.content.clarification || ''} />

@@ -10,14 +10,28 @@ interface EnglishCornerProps {
     onBack: () => void;
 }
 
+// Locally augment the type to include a unique identifier for UI state management
+type AnnotationWithIndex = CorrectionAnnotation & {
+    // A unique key combining the original text and its position in the essay
+    key: string; 
+    // FIX: Added the 'index' property, which is attached during processing.
+    // This resolves errors where '.index' was accessed on an object of this type.
+    index: number;
+};
+
 const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
     const [ai, setAi] = useState<GoogleGenAI | null>(null);
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [result, setResult] = useState<CorrectionResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [activeAnnotation, setActiveAnnotation] = useState<CorrectionAnnotation | null>(null);
-    const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number } | null>(null);
+    
+    // State to manage the currently visible tooltip
+    const [activeTooltip, setActiveTooltip] = useState<{ 
+        annotation: AnnotationWithIndex;
+        position: { top: number; left: number };
+    } | null>(null);
+
     const resultContainerRef = useRef<HTMLDivElement>(null);
     
     useEffect(() => {
@@ -36,6 +50,7 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
         setIsLoading(true);
         setResult(null);
         setError(null);
+        setActiveTooltip(null); // Clear active tooltip on new submission
 
         const prompt = `You are an expert English teacher specializing in evaluating essays for China's Postgraduate Entrance Examination (English I). Please analyze the following essay.
 
@@ -100,21 +115,23 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
         }
     };
 
-    const handleAnnotationEnter = (annotation: CorrectionAnnotation, event: React.MouseEvent<HTMLSpanElement>) => {
+    const handleAnnotationClick = (annotation: AnnotationWithIndex, event: React.MouseEvent<HTMLSpanElement>) => {
+        // If the clicked annotation is already active, hide the tooltip
+        if (activeTooltip && activeTooltip.annotation.key === annotation.key) {
+            setActiveTooltip(null);
+            return;
+        }
+
         if (!resultContainerRef.current) return;
         const spanRect = event.currentTarget.getBoundingClientRect();
         const containerRect = resultContainerRef.current.getBoundingClientRect();
 
-        setActiveAnnotation(annotation);
-        setTooltipPosition({
+        const position = {
             top: spanRect.top - containerRect.top - 10, // 10px offset above
             left: spanRect.left - containerRect.left + spanRect.width / 2,
-        });
-    };
-
-    const handleAnnotationLeave = () => {
-        setActiveAnnotation(null);
-        setTooltipPosition(null);
+        };
+        
+        setActiveTooltip({ annotation, position });
     };
 
     const renderAnnotatedText = () => {
@@ -123,11 +140,10 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
         const { annotations } = result;
         const text = inputText;
 
-        // Use a robust method to handle overlapping annotations
-        const sortedAnnotations = annotations
+        // Use a robust method to handle overlapping annotations and create unique keys
+        const sortedAnnotations: AnnotationWithIndex[] = annotations
             .map(anno => {
-                // Find all occurrences of the text
-                const indices = [];
+                const indices: number[] = [];
                 let startIndex = 0;
                 while(startIndex < text.length) {
                     const index = text.indexOf(anno.text, startIndex);
@@ -135,7 +151,7 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
                     indices.push(index);
                     startIndex = index + 1;
                 }
-                return indices.map(index => ({...anno, index}));
+                return indices.map(index => ({...anno, index, key: `${anno.text}-${index}`}));
             })
             .flat()
             .sort((a, b) => a.index - b.index);
@@ -143,23 +159,20 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
         const parts: (string | JSX.Element)[] = [];
         let lastIndex = 0;
         
-        // This simple iteration doesn't handle overlaps, but it's a good start.
-        // A more complex algorithm would be needed for true overlapping highlights.
+        // Filter out overlapping annotations, preferring the one that starts first.
         const uniqueAnnotations = sortedAnnotations.filter((anno, index, self) => 
            index === 0 || anno.index >= (self[index - 1].index + self[index - 1].text.length)
         );
 
-
-        uniqueAnnotations.forEach((anno, i) => {
+        uniqueAnnotations.forEach((anno) => {
             if (anno.index > lastIndex) {
                 parts.push(text.substring(lastIndex, anno.index));
             }
             parts.push(
                 <AnnotatedSpan
-                    key={`${anno.text}-${i}`}
+                    key={anno.key}
                     annotation={anno}
-                    onMouseEnter={(e) => handleAnnotationEnter(anno, e)}
-                    onMouseLeave={handleAnnotationLeave}
+                    onClick={(e) => handleAnnotationClick(anno, e)}
                 />
             );
             lastIndex = anno.index + (anno.text ? anno.text.length : 0);
@@ -207,8 +220,17 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
             {error && <div className="p-4 bg-red-100 text-red-800 rounded-lg">{error}</div>}
 
             {result && (
-                <div ref={resultContainerRef} className="relative bg-white p-6 rounded-2xl shadow-lg border border-slate-200/80 animate-fadeIn space-y-6">
-                    <Tooltip annotation={activeAnnotation} position={tooltipPosition} />
+                <div 
+                    ref={resultContainerRef} 
+                    className="relative bg-white px-6 pt-12 pb-6 rounded-2xl shadow-lg border border-slate-200/80 animate-fadeIn space-y-6"
+                    onClick={(e) => {
+                        // Close tooltip if clicking the background of the card
+                        if (e.target === e.currentTarget) {
+                           setActiveTooltip(null);
+                        }
+                    }}
+                >
+                    <Tooltip annotation={activeTooltip?.annotation ?? null} position={activeTooltip?.position ?? null} />
                     <h3 className="text-2xl font-bold text-slate-800">批改报告</h3>
                     
                     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-8 bg-slate-50 p-6 rounded-xl border border-slate-200">
