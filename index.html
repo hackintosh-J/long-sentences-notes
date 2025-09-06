@@ -29,7 +29,7 @@
                 'to': { opacity: 1, transform: 'scale(1)' },
               },
               pageOut: {
-                'from': { opacity: 1, transform: 'scale(1)' },
+                'from': { opacity: 1, transform: 'scale(0.95)' },
                 'to': { opacity: 0, transform: 'scale(0.95)' },
               },
               cardIn: {
@@ -69,6 +69,13 @@
       @tailwind base;
       @tailwind components;
       @tailwind utilities;
+      
+      @layer base {
+        html {
+          /* Scale down the entire UI to 80% of the default size */
+          font-size: 12.8px;
+        }
+      }
 
       @layer components {
         @keyframes soundwave {

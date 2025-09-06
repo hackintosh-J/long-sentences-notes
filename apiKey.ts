@@ -2,4 +2,4 @@
 // The key is stored in Base64 format to avoid having a plaintext key in the source code.
 // The application will decode this string before using it.
 
-export const GEMINI_API_KEY_B64 = 'QUl6YVN5Q2dPVnJUTzBIUHZIRVBUem5WQk10MzVMd0hjbXNtVURF';
+export const GEMINI_API_KEY_B64 = 'QUl6YVN5QXlMMVFhNGItUm5sR2gtbWRON1FVVmc0ckhzaldMU2pV';

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { ArrowLeftIcon, SparklesIcon, SpinnerIcon } from './icons';
 import type { Mood, MoodEntry } from '../types';
-import { GEMINI_API_KEY_B64 } from '../apiKey';
 
 
 interface StudyAnalysisProps {
@@ -53,10 +52,12 @@ const StudyAnalysis: React.FC<StudyAnalysisProps> = ({ onBack }) => {
         }
 
         try {
-            const decodedKey = atob(GEMINI_API_KEY_B64);
-            setAi(new GoogleGenAI({ apiKey: decodedKey }));
+            if (!process.env.API_KEY) {
+                throw new Error("API_KEY environment variable not set");
+            }
+            setAi(new GoogleGenAI({ apiKey: process.env.API_KEY }));
         } catch (e) {
-            console.error("Failed to decode API key:", e);
+            console.error("Failed to initialize GoogleGenAI:", e);
         }
     }, []);
 
@@ -101,7 +102,7 @@ const StudyAnalysis: React.FC<StudyAnalysisProps> = ({ onBack }) => {
             Example format: **总结:** [Your summary here]|||**小建议:** [Your suggestion here]`;
 
             try {
-                const responseStream = await ai.models.generateContentStream({ model: 'gemini-2.5-flash-lite', contents: prompt });
+                const responseStream = await ai.models.generateContentStream({ model: 'gemini-2.5-flash', contents: prompt });
                 for await (const chunk of responseStream) {
                     setAiSummary(prev => prev + chunk.text);
                 }

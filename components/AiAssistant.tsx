@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { ArrowLeftIcon, LightbulbIcon, SparklesIcon, BookIcon, SpinnerIcon, RefreshIcon, TranslationIcon, FeatherIcon } from './icons';
-import { GEMINI_API_KEY_B64 } from '../apiKey';
 
 interface AiAssistantProps {
     onBack: () => void;
@@ -40,8 +39,7 @@ type BriefingLoading = {
 
 const AiAssistant: React.FC<AiAssistantProps> = ({ onBack }) => {
     const [ai, setAi] = useState<GoogleGenAI | null>(null);
-    const [decodedApiKey, setDecodedApiKey] = useState<string>('');
-
+    
     // State for Briefing sections
     const [content, setContent] = useState<BriefingContent>({ focus: '', clarification: '', word: '', encouragement: '' });
     const [loading, setLoading] = useState<BriefingLoading>({ focus: false, clarification: false, word: false, encouragement: false });
@@ -56,21 +54,21 @@ const AiAssistant: React.FC<AiAssistantProps> = ({ onBack }) => {
 
     useEffect(() => {
         try {
-            const decodedKey = atob(GEMINI_API_KEY_B64);
-            setDecodedApiKey(decodedKey);
-            setAi(new GoogleGenAI({ apiKey: decodedKey }));
+            if (!process.env.API_KEY) {
+                throw new Error("API_KEY environment variable not set");
+            }
+            setAi(new GoogleGenAI({ apiKey: process.env.API_KEY }));
         } catch (e) {
-            console.error("Failed to decode API key:", e);
-            setError('API Key 配置错误，AI功能无法使用。');
-            setDecodedApiKey('Error: Failed to decode the key from Base64.');
+            console.error("Failed to initialize GoogleGenAI:", e);
+            setError('AI 功能初始化失败。请确保 API Key 已正确配置。');
         }
     }, []);
     
     const PROMPTS = {
-        focus: `List 2-3 highly specific, core concepts for review for the Chinese postgraduate entrance exams in Medicine (西医综合) or Politics. Use bullet points. Be extremely concise (under 50 Chinese characters total). Example: "- 心脏周期\n- 矛盾的同一性"`,
-        clarification: `Proactively select one pair of easily confused concepts from the Chinese postgraduate entrance exams (Politics or Medicine) and explain their key difference in one sentence. Be extremely concise (under 80 Chinese characters). Use markdown for emphasis.`,
-        word: `Provide one advanced English vocabulary word relevant to academic reading (like for the CRE exam). Format as: **Word**\nEN: [brief English definition]\nZH: [brief Chinese definition]\nEx: [a short example sentence]. The entire response must be very short.`,
-        encouragement: `Write a very short, warm, and powerful message of encouragement (under 60 Chinese characters) for a female student stressed about her exams. Be original. Sign it as "**你的AI学习伙伴**".`
+        focus: `列出2-3个针对中国考研西医综合或政治的、高度具体的核心复习概念。使用项目符号。要求极简(总共50字以内)。例如:\n- 心脏周期\n- 矛盾的同一性`,
+        clarification: `主动选择一对中国考研(政治或西医综合)中极易混淆的概念，并用一句话解释其核心区别。要求极简(80字以内)。用Markdown **加粗** 关键概念。例如: **意识**与**物质**: 物质决定意识，意识是物质的反映。`,
+        word: `提供一个与学术阅读(如考研英语)相关的高阶英语单词。格式如下:\n**单词**\nEN: [简短英文释义]\nZH: [简短中文释义]\nEx: [简短例句]。整体回答必须非常简短。`,
+        encouragement: `为一位因考研而倍感压力的女生写一段简短、温暖而有力的鼓励信息(60字以内)。内容需原创。署名为 "**你的AI学习伙伴**"。`
     };
 
     const runAllBriefingsAtOnce = useCallback(async () => {
@@ -81,7 +79,7 @@ const AiAssistant: React.FC<AiAssistantProps> = ({ onBack }) => {
         setContent({ focus: '', clarification: '', word: '', encouragement: '' });
         setError('');
 
-        const combinedPrompt = `Generate four distinct, concise pieces of content for a Chinese postgraduate entrance exam study app. Use the specified separators before each section. Adhere to the constraints for each section.
+        const combinedPrompt = `为一款中国考研学习App生成四段独立、简洁的内容。严格按照指定的分隔符开始每个部分，并严格遵守各部分的格式和字数限制。
 
 |||FOCUS|||
 ${PROMPTS.focus}
@@ -95,52 +93,39 @@ ${PROMPTS.word}
 |||ENCOURAGEMENT|||
 ${PROMPTS.encouragement}
 `;
-
-        let currentSection: keyof BriefingContent | null = null;
-        let buffer = '';
-        const sections: (keyof BriefingContent)[] = ['focus', 'clarification', 'word', 'encouragement'];
-        const separators = ['|||FOCUS|||', '|||CLARIFICATION|||', '|||WORD|||', '|||ENCOURAGEMENT|||'];
-
         try {
-            const responseStream = await ai.models.generateContentStream({ model: 'gemini-2.5-flash-lite', contents: combinedPrompt });
-
+            const responseStream = await ai.models.generateContentStream({ model: 'gemini-2.5-flash', contents: combinedPrompt });
+            let fullText = '';
             for await (const chunk of responseStream) {
-                buffer += chunk.text;
+                fullText += chunk.text;
 
-                if (!currentSection) {
-                    for (let i = 0; i < separators.length; i++) {
-                        if (buffer.includes(separators[i])) {
-                            currentSection = sections[i];
-                            buffer = buffer.substring(buffer.indexOf(separators[i]) + separators[i].length);
-                            setLoading(prev => ({...prev, [currentSection as keyof BriefingContent]: false}));
-                            break;
-                        }
-                    }
-                }
+                const separators = {
+                    focus: '|||FOCUS|||',
+                    clarification: '|||CLARIFICATION|||',
+                    word: '|||WORD|||',
+                    encouragement: '|||ENCOURAGEMENT|||',
+                };
+
+                // Turn off spinners as separators are found
+                setLoading(prev => ({
+                    focus: prev.focus && !fullText.includes(separators.focus),
+                    clarification: prev.clarification && !fullText.includes(separators.clarification),
+                    word: prev.word && !fullText.includes(separators.word),
+                    encouragement: prev.encouragement && !fullText.includes(separators.encouragement),
+                }));
                 
-                while (currentSection) {
-                    const currentSectionIndex = sections.indexOf(currentSection);
-                    const nextSeparator = currentSectionIndex < sections.length - 1 ? separators[currentSectionIndex + 1] : null;
-                    const nextSection = currentSectionIndex < sections.length - 1 ? sections[currentSectionIndex + 1] : null;
-                    
-                    let separatorIndex = -1;
-                    if (nextSeparator) {
-                        separatorIndex = buffer.indexOf(nextSeparator);
-                    }
+                // Regex to capture content between separators
+                const focusMatch = fullText.match(/\|\|\|FOCUS\|\|\|([\s\S]*?)(?=\|\|\|CLARIFICATION\|\|\||$)/);
+                const clarificationMatch = fullText.match(/\|\|\|CLARIFICATION\|\|\|([\s\S]*?)(?=\|\|\|WORD\|\|\||$)/);
+                const wordMatch = fullText.match(/\|\|\|WORD\|\|\|([\s\S]*?)(?=\|\|\|ENCOURAGEMENT\|\|\||$)/);
+                const encouragementMatch = fullText.match(/\|\|\|ENCOURAGEMENT\|\|\|([\s\S]*)/);
 
-                    if (nextSeparator && nextSection && separatorIndex !== -1) {
-                        const contentForCurrent = buffer.substring(0, separatorIndex);
-                        setContent(prev => ({ ...prev, [currentSection as keyof BriefingContent]: prev[currentSection as keyof BriefingContent] + contentForCurrent }));
-                        
-                        currentSection = nextSection;
-                        buffer = buffer.substring(separatorIndex + nextSeparator.length);
-                        setLoading(prev => ({...prev, [currentSection as keyof BriefingContent]: false}));
-                    } else {
-                        setContent(prev => ({ ...prev, [currentSection as keyof BriefingContent]: prev[currentSection as keyof BriefingContent] + buffer }));
-                        buffer = '';
-                        break;
-                    }
-                }
+                setContent({
+                    focus: focusMatch ? focusMatch[1].trim() : '',
+                    clarification: clarificationMatch ? clarificationMatch[1].trim() : '',
+                    word: wordMatch ? wordMatch[1].trim() : '',
+                    encouragement: encouragementMatch ? encouragementMatch[1].trim() : '',
+                });
             }
         } catch (err) {
             console.error(err);
@@ -149,6 +134,7 @@ ${PROMPTS.encouragement}
             setLoading({ focus: false, clarification: false, word: false, encouragement: false });
         }
     }, [ai, PROMPTS]);
+
 
     const handleGenerateQuestion = async () => {
         if (!ai) return;
@@ -160,7 +146,7 @@ ${PROMPTS.encouragement}
         const prompt = `As an expert in China's graduate school entrance exams for ${subject}, create one challenging multiple-choice question about a core concept. Provide four options (A, B, C, D). Use markdown for emphasis (e.g., **bold**). Then, on a new line after a separator "=====", provide the correct answer and a detailed explanation for why the correct answer is right and the others are wrong. The entire response must be in Chinese.`;
 
         try {
-            const responseStream = await ai.models.generateContentStream({ model: 'gemini-2.5-flash-lite', contents: prompt });
+            const responseStream = await ai.models.generateContentStream({ model: 'gemini-2.5-flash', contents: prompt });
             for await (const chunk of responseStream) {
                 setQuestionResult(prev => prev + chunk.text);
             }
@@ -236,11 +222,6 @@ ${PROMPTS.encouragement}
                 <p className="text-slate-500 max-w-2xl mx-auto">你的智能学习伙伴，点击按钮获取今日份的学习速递。</p>
             </div>
 
-            <div className="bg-yellow-50 border border-yellow-300 text-yellow-800 text-xs p-3 rounded-lg font-mono break-all">
-                <strong>Decoded API Key (for debugging):</strong>
-                <p>{decodedApiKey}</p>
-            </div>
-
             <div className="flex justify-center">
                 <button onClick={runAllBriefingsAtOnce} disabled={isBriefingLoading || !ai} className="bg-purple-500 text-white font-bold py-2.5 px-8 rounded-full hover:bg-purple-600 transition-all duration-300 transform hover:scale-105 disabled:bg-slate-300 disabled:scale-100 flex items-center justify-center gap-2 shadow-lg">
                     {isBriefingLoading ? <><SpinnerIcon className="h-5 w-5"/> 正在加载...</> : (
@@ -254,7 +235,7 @@ ${PROMPTS.encouragement}
 
 
             {hasLoadedBriefing && (
-                <div className="grid grid-cols-2 gap-4 sm:gap-6 animate-fadeIn">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 animate-fadeIn">
                     <BriefingCard title="今日重点" icon={<FeatherIcon className="h-5 w-5 mr-2 text-green-500"/>} contentKey="focus" className="text-slate-800" />
                     <BriefingCard title="概念辨析" icon={<LightbulbIcon className="h-5 w-5 mr-2 text-amber-500"/>} contentKey="clarification" className="text-slate-800"/>
                     <BriefingCard title="每日一词" icon={<TranslationIcon className="h-5 w-5 mr-2 text-sky-500"/>} contentKey="word" className="text-slate-800"/>
