@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { GoogleGenAI } from "@google/genai";
+import { GEMINI_API_KEY_B64 } from '../apiKey';
 import { ArrowLeftIcon, LightbulbIcon, SparklesIcon, BookIcon, SpinnerIcon, RefreshIcon, TranslationIcon, FeatherIcon } from './icons';
 
 interface AiAssistantProps {
@@ -54,10 +55,11 @@ const AiAssistant: React.FC<AiAssistantProps> = ({ onBack }) => {
 
     useEffect(() => {
         try {
-            if (!process.env.API_KEY) {
-                throw new Error("API_KEY environment variable not set");
+            if (!GEMINI_API_KEY_B64) {
+                throw new Error("API Key not found in apiKey.ts");
             }
-            setAi(new GoogleGenAI({ apiKey: process.env.API_KEY }));
+            const apiKey = atob(GEMINI_API_KEY_B64);
+            setAi(new GoogleGenAI({ apiKey }));
         } catch (e) {
             console.error("Failed to initialize GoogleGenAI:", e);
             setError('AI 功能初始化失败。请确保 API Key 已正确配置。');

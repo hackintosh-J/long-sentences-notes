@@ -30,7 +30,7 @@ export interface Quiz {
 export interface PoliticsCardData {
     id: string;
     term: string;
-    explanation: string;
+    explanation:string;
     details?: string[];
 }
 
@@ -72,7 +72,7 @@ export interface MetabolicPathway {
 }
 
 // App Page Type
-export type Page = 'dashboard' | 'english' | 'politics' | 'medicine' | 'focus_garden' | 'mood_journal' | 'ai_assistant' | 'study_analysis';
+export type Page = 'dashboard' | 'english' | 'politics' | 'medicine' | 'focus_garden' | 'mood_journal' | 'ai_assistant' | 'memory_game';
 
 
 // Mood Journal Types

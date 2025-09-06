@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { DAILY_NOTES, FUN_FACTS } from '../constants';
-import { BookIcon, PoliticsIcon, MedicineIcon, SparklesIcon, ClockIcon, JournalIcon, BrainCircuitIcon, ChartBarIcon } from './icons';
+import { BookIcon, PoliticsIcon, MedicineIcon, SparklesIcon, ClockIcon, JournalIcon, BrainCircuitIcon, PuzzleIcon } from './icons';
 import type { Page } from '../types';
 
 interface DashboardProps {
@@ -45,7 +45,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             {/* Module Navigation */}
             <div>
                 <h2 className="text-2xl font-bold text-slate-700 mb-4">功能模块</h2>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                      <ModuleCard 
                         icon={<ClockIcon className="h-8 w-8 text-white" />}
                         title="专注花园"
@@ -56,16 +56,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                      <ModuleCard 
                         icon={<JournalIcon className="h-8 w-8 text-white" />}
                         title="心情日历"
-                        description="用色彩和文字，描绘你的心路历程"
+                        description="记录心情，AI为你提供专属建议"
                         color="from-indigo-400 to-violet-500"
                         onClick={() => onNavigate('mood_journal')}
-                    />
-                    <ModuleCard 
-                        icon={<ChartBarIcon className="h-8 w-8 text-white" />}
-                        title="学习分析"
-                        description="回顾心情曲线，洞察学习状态"
-                        color="from-amber-400 to-orange-500"
-                        onClick={() => onNavigate('study_analysis')}
                     />
                      <ModuleCard 
                         icon={<BrainCircuitIcon className="h-8 w-8 text-white" />}
@@ -73,6 +66,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                         description="动态问答，概念辨析，智能伙伴"
                         color="from-purple-500 to-pink-500"
                         onClick={() => onNavigate('ai_assistant')}
+                    />
+                    <ModuleCard 
+                        icon={<PuzzleIcon className="h-8 w-8 text-white" />}
+                        title="趣味记忆牌"
+                        description="翻转卡片，挑战你的记忆力"
+                        color="from-amber-400 to-orange-500"
+                        onClick={() => onNavigate('memory_game')}
                     />
                     <ModuleCard 
                         icon={<BookIcon className="h-8 w-8 text-white" />}

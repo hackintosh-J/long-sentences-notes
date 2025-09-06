@@ -7,7 +7,7 @@ import MedicineCorner from './components/MedicineCorner';
 import FocusGarden from './components/FocusGarden';
 import MoodJournal from './components/MoodJournal';
 import AiAssistant from './components/AiAssistant';
-import StudyAnalysis from './components/StudyAnalysis';
+import MemoryGame from './components/MemoryGame';
 import type { Page } from './types';
 
 const App: React.FC = () => {
@@ -41,7 +41,7 @@ const App: React.FC = () => {
     focus_garden: <FocusGarden onBack={() => navigateTo('dashboard')} />,
     mood_journal: <MoodJournal onBack={() => navigateTo('dashboard')} />,
     ai_assistant: <AiAssistant onBack={() => navigateTo('dashboard')} />,
-    study_analysis: <StudyAnalysis onBack={() => navigateTo('dashboard')} />,
+    memory_game: <MemoryGame onBack={() => navigateTo('dashboard')} />,
   };
 
   return (

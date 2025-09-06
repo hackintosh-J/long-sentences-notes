@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { GoogleGenAI } from "@google/genai";
+import { GEMINI_API_KEY_B64 } from '../apiKey';
 import { ArrowLeftIcon, SparklesIcon, SpinnerIcon } from './icons';
 import type { Mood, MoodEntry } from '../types';
 
@@ -52,10 +53,11 @@ const StudyAnalysis: React.FC<StudyAnalysisProps> = ({ onBack }) => {
         }
 
         try {
-            if (!process.env.API_KEY) {
-                throw new Error("API_KEY environment variable not set");
+            if (!GEMINI_API_KEY_B64) {
+                throw new Error("API Key not found in apiKey.ts");
             }
-            setAi(new GoogleGenAI({ apiKey: process.env.API_KEY }));
+            const apiKey = atob(GEMINI_API_KEY_B64);
+            setAi(new GoogleGenAI({ apiKey }));
         } catch (e) {
             console.error("Failed to initialize GoogleGenAI:", e);
         }
