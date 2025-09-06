@@ -130,7 +130,7 @@ ${prompts.word}`;
             required: ['sentence', 'translation', 'components']
         };
 
-        const TIMEOUT_DURATION = 40000; // 40 seconds
+        const TIMEOUT_DURATION = 20000; // 20 seconds
         const timeoutPromise = new Promise((_, reject) => 
             setTimeout(() => reject(new Error('timeout')), TIMEOUT_DURATION)
         );
@@ -445,7 +445,7 @@ ${prompts.word}`;
                          </BriefingCard>
                          <BriefingCard title="每日寄语" icon={<SparklesIcon className="h-6 w-6 mr-2 text-rose-500"/>} isNote={true}>
                             {briefingCache ? (
-                                <div className="text-2xl leading-relaxed text-left">
+                                <div className="text-xl leading-relaxed text-left">
                                     {briefingCache.dailyNote.replace('考研人的每日寄语：', '').split(/(?<=[，。！？、；：])/)
                                       .filter(s => s.trim())
                                       .map((line, index) => (
