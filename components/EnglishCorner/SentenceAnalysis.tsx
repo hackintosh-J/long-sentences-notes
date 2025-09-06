@@ -1,7 +1,8 @@
 import React, { useState, useRef, useCallback } from 'react';
+// FIX: Added missing type definitions to types.ts to resolve import errors.
 import type { SentenceData, Annotation, AnnotationType } from '../../types';
 import { TranslationIcon, LightbulbIcon, SpeakerIcon, EyeIcon, EyeOffIcon, PracticeIcon } from '../icons';
-import InteractiveWord from './InteractiveWord';
+// FIX: Removed import of InteractiveWord as it was incompatible with this legacy component's props.
 import Tooltip from './Tooltip';
 
 interface SentenceAnalysisProps {
@@ -74,17 +75,20 @@ const SentenceAnalysis: React.FC<SentenceAnalysisProps> = ({ data }) => {
         parts.push(sentence.substring(lastIndex, anno.index));
       }
       const colors = ANNOTATION_COLORS[anno.type] || ANNOTATION_COLORS.vocabulary;
+      // FIX: Replaced incompatible InteractiveWord component with a styled span to fix type errors
+      // and prop mismatches. This replicates the intended functionality locally.
+      const isHighlighted = highlightedText === anno.text;
+      const classNames = `cursor-pointer rounded-md px-1 py-0.5 transition-all duration-300 ease-in-out font-semibold ${colors.bg} ${colors.text} ${isHighlighted ? `${colors.ring} ring-2` : ''}`;
+
       parts.push(
-        <InteractiveWord
+        <span
           key={`${anno.text}-${i}`}
-          annotation={anno}
-          onHover={handleWordHover}
-          onLeave={handleWordLeave}
-          colorClass={`${colors.bg} ${colors.text}`}
-          isHighlighted={highlightedText === anno.text}
-          highlightColorClass={colors.ring}
-          isPracticeMode={isPracticeMode}
-        />
+          onMouseEnter={(e) => handleWordHover(anno, e.currentTarget)}
+          onMouseLeave={handleWordLeave}
+          className={classNames}
+        >
+          {isPracticeMode ? '_____' : anno.text}
+        </span>
       );
       lastIndex = anno.index + anno.text.length;
     });

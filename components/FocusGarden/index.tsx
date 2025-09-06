@@ -40,9 +40,13 @@ const FocusGarden: React.FC<FocusGardenProps> = ({ onBack }) => {
 
     // Timer logic
     useEffect(() => {
-        let interval: NodeJS.Timeout | null = null;
+        // FIX: Replaced NodeJS.Timeout with 'number' for browser compatibility.
+        // The 'setInterval' function in a browser environment returns a numeric ID, not a NodeJS.Timeout object.
+        let interval: number | null = null;
         if (status === 'running' && timeLeft > 0) {
-            interval = setInterval(() => {
+            // FIX: Use `window.setInterval` to explicitly call the browser API.
+            // This ensures the return type is 'number', matching the type of `interval` and resolving the conflict with NodeJS.Timeout.
+            interval = window.setInterval(() => {
                 setTimeLeft(prev => prev - 1);
             }, 1000);
         } else if (status === 'running' && timeLeft === 0) {
@@ -58,7 +62,7 @@ const FocusGarden: React.FC<FocusGardenProps> = ({ onBack }) => {
         }
 
         return () => {
-            if (interval) clearInterval(interval);
+            if (interval) window.clearInterval(interval);
         };
     }, [status, timeLeft]);
     

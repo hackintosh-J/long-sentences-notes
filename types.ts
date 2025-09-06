@@ -1,17 +1,50 @@
+// English Composition Correction Types
+export type CorrectionAnnotationType = 'GOOD' | 'ERROR' | 'SUGGESTION';
+
+export interface CorrectionAnnotation {
+    text: string;
+    type: CorrectionAnnotationType;
+    explanation: string;
+}
+
+export interface CorrectionResponse {
+    overallScore: number;
+    scoreBasis: string;
+    annotations: CorrectionAnnotation[];
+}
+
+// FIX: Added missing types for a legacy component to resolve compilation errors.
+// English Sentence Analysis Types (for a legacy component)
 export type AnnotationType = 'vocabulary' | 'grammar' | 'phrase' | 'reference';
 
 export interface Annotation {
-  text: string;
-  explanation: string;
-  type: AnnotationType;
+    text: string;
+    type: AnnotationType;
+    explanation: string;
 }
 
 export interface SentenceData {
-  id: number;
-  sentence: string;
-  annotations: Annotation[];
-  fullTranslation: string;
+    id: number | string;
+    sentence: string;
+    annotations: Annotation[];
+    fullTranslation: string;
 }
+
+// Sentence of the Day types
+export type SentenceComponentType = 'subject' | 'predicate' | 'object' | 'attributive' | 'adverbial' | 'complement' | 'clause' | 'phrase' | 'connective';
+
+export interface SentenceComponent {
+    text: string;
+    type: SentenceComponentType;
+    explanation: string;
+}
+
+export interface SentenceAnalysisData {
+    sentence: string;
+    translation: string;
+    components: SentenceComponent[];
+}
+
 
 // Quiz Type
 export interface QuizQuestion {
@@ -55,6 +88,7 @@ export interface CalculationStep {
     title: string;
     nadh: number;
     fadh2: number;
+
     atp_gtp: number;
     details: string;
 }
