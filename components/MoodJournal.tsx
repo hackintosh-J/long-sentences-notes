@@ -230,16 +230,13 @@ ${context}
 格式示例: **总结:** [你的总结]|||**小建议:** [你的建议]`;
 
             try {
-                const responseStream = await ai.models.generateContentStream({ model: 'gemini-2.5-flash', contents: prompt });
-                let fullText = '';
-                for await (const chunk of responseStream) {
-                    fullText += chunk.text;
-                    setAiSummary(prev => prev + chunk.text);
-                }
+                const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+                const fullText = response.text;
+                setAiSummary(fullText);
                 localStorage.setItem(SUMMARY_CACHE_KEY, JSON.stringify({ summary: fullText, signature: dataSignature }));
             } catch (error) {
                 console.error("AI summary generation failed:", error);
-                setAiSummary("AI分析加载失败，但你的努力我们有目共睹，继续加油！");
+                setAiSummary("AI分析加载失败，但你的努力我们有目共睹，继续加油！|||**小建议:** 记得多喝水，适当休息哦！");
             } finally {
                 setIsLoadingSummary(false);
             }

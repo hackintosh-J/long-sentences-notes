@@ -53,11 +53,10 @@ const StudyAnalysis: React.FC<StudyAnalysisProps> = ({ onBack }) => {
         }
 
         try {
-            if (!GEMINI_API_KEY_B64) {
-                throw new Error("API Key not found in apiKey.ts");
+            if (GEMINI_API_KEY_B64) {
+                const apiKey = atob(GEMINI_API_KEY_B64);
+                setAi(new GoogleGenAI({ apiKey }));
             }
-            const apiKey = atob(GEMINI_API_KEY_B64);
-            setAi(new GoogleGenAI({ apiKey }));
         } catch (e) {
             console.error("Failed to initialize GoogleGenAI:", e);
         }
@@ -104,10 +103,8 @@ const StudyAnalysis: React.FC<StudyAnalysisProps> = ({ onBack }) => {
             Example format: **总结:** [Your summary here]|||**小建议:** [Your suggestion here]`;
 
             try {
-                const responseStream = await ai.models.generateContentStream({ model: 'gemini-2.5-flash', contents: prompt });
-                for await (const chunk of responseStream) {
-                    setAiSummary(prev => prev + chunk.text);
-                }
+                const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+                setAiSummary(response.text);
             } catch (error) {
                 console.error("AI summary generation failed:", error);
                 setAiSummary("AI分析加载失败，但你的努力我们有目共睹，继续加油！");

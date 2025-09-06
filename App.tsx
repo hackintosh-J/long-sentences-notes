@@ -6,7 +6,6 @@ import PoliticsCorner from './components/PoliticsCorner';
 import MedicineCorner from './components/MedicineCorner';
 import FocusGarden from './components/FocusGarden';
 import MoodJournal from './components/MoodJournal';
-import AiAssistant from './components/AiAssistant';
 import MemoryGame from './components/MemoryGame';
 import type { Page } from './types';
 
@@ -40,7 +39,6 @@ const App: React.FC = () => {
     medicine: <MedicineCorner onBack={() => navigateTo('dashboard')} />,
     focus_garden: <FocusGarden onBack={() => navigateTo('dashboard')} />,
     mood_journal: <MoodJournal onBack={() => navigateTo('dashboard')} />,
-    ai_assistant: <AiAssistant onBack={() => navigateTo('dashboard')} />,
     memory_game: <MemoryGame onBack={() => navigateTo('dashboard')} />,
   };
 

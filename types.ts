@@ -72,7 +72,7 @@ export interface MetabolicPathway {
 }
 
 // App Page Type
-export type Page = 'dashboard' | 'english' | 'politics' | 'medicine' | 'focus_garden' | 'mood_journal' | 'ai_assistant' | 'memory_game';
+export type Page = 'dashboard' | 'english' | 'politics' | 'medicine' | 'focus_garden' | 'mood_journal' | 'memory_game';
 
 
 // Mood Journal Types

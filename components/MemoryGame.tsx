@@ -71,8 +71,8 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack }) => {
             if (firstCard.type === secondCard.type) {
                 // Match
                 setTimeout(() => {
-                    // FIX: Use 'as const' to prevent TypeScript from widening the status type to 'string'. This resolves the error where 'string' is not assignable to '"default" | "flipped" | "matched"'.
                     setCards(prevCards => prevCards.map(card => 
+                        // FIX: Added 'as const' to prevent TypeScript from widening the status type to 'string'.
                         card.type === firstCard.type ? { ...card, status: 'matched' as const } : card
                     ));
                     setFlippedCards([]);
@@ -82,6 +82,7 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack }) => {
                 // No match
                 setTimeout(() => {
                     setCards(prevCards => prevCards.map(card => 
+                       // FIX: Added 'as const' to prevent TypeScript from widening the status type to 'string'.
                        (card.id === firstCard.id || card.id === secondCard.id) ? { ...card, status: 'default' as const } : card
                     ));
                     setFlippedCards([]);
