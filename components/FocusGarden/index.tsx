@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { BREAK_TIME_TIPS, PLANT_EMOJIS } from '../constants';
-import { ArrowLeftIcon, ClockIcon, PlayIcon, PauseIcon, StopIcon } from './icons';
+import { BREAK_TIME_TIPS, PLANT_EMOJIS } from '../../constants';
+import { ArrowLeftIcon, PlayIcon, PauseIcon, StopIcon } from '../icons';
+import { getRandomItem, formatTime } from '../../utils/helpers';
 
 interface FocusGardenProps {
     onBack: () => void;
@@ -8,13 +9,6 @@ interface FocusGardenProps {
 
 type TimerStatus = 'idle' | 'running' | 'paused' | 'break';
 type Plant = { id: number; emoji: string; };
-
-const getRandomItem = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
-const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
-    const secs = (seconds % 60).toString().padStart(2, '0');
-    return `${mins}:${secs}`;
-};
 
 const FocusGarden: React.FC<FocusGardenProps> = ({ onBack }) => {
     const [status, setStatus] = useState<TimerStatus>('idle');

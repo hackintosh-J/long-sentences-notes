@@ -1,155 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { GoogleGenAI } from "@google/genai";
-import { GEMINI_API_KEY_B64 } from '../apiKey';
-import { ArrowLeftIcon, TrashIcon, SparklesIcon, SpinnerIcon } from './icons';
-import type { Mood, MoodEntry } from '../types';
+import { GEMINI_API_KEY_B64 } from '../../apiKey';
+import { ArrowLeftIcon, SparklesIcon, SpinnerIcon } from '../icons';
+import type { Mood, MoodEntry } from '../../types';
+// FIX: Corrected import path to resolve module ambiguity.
+import { MOODS_CONFIG } from '../../constants/mood';
+import { dateToKey } from '../../utils/helpers';
+import SimpleMarkdownRenderer from '../common/SimpleMarkdownRenderer';
+import CalendarView from './CalendarView';
+import EditorView from './EditorView';
 
 interface MoodJournalProps {
     onBack: () => void;
 }
 
-const MOODS: { value: Mood; emoji: string; label: string; colors: { bg: string; text: string; ring: string; calendarBg: string; } }[] = [
-    { value: 1, emoji: '😞', label: '很糟糕', colors: { bg: 'bg-red-100', text: 'text-red-800', ring: 'ring-red-400', calendarBg: 'bg-red-400' } },
-    { value: 2, emoji: '😕', label: '不太好', colors: { bg: 'bg-orange-100', text: 'text-orange-800', ring: 'ring-orange-400', calendarBg: 'bg-orange-400' } },
-    { value: 3, emoji: '😐', label: '一般般', colors: { bg: 'bg-yellow-100', text: 'text-yellow-800', ring: 'ring-yellow-400', calendarBg: 'bg-yellow-400' } },
-    { value: 4, emoji: '😊', label: '还不错', colors: { bg: 'bg-sky-100', text: 'text-sky-800', ring: 'ring-sky-400', calendarBg: 'bg-sky-400' } },
-    { value: 5, emoji: '😄', label: '棒极了', colors: { bg: 'bg-green-100', text: 'text-green-800', ring: 'ring-green-400', calendarBg: 'bg-green-400' } },
-];
-
-const MOODS_CONFIG: { [key in Mood]: { emoji: string; label: string; colors: string } } = {
-    1: { emoji: '😞', label: '很糟糕', colors: 'bg-red-400' },
-    2: { emoji: '😕', label: '不太好', colors: 'bg-orange-400' },
-    3: { emoji: '😐', label: '一般般', colors: 'bg-yellow-400' },
-    4: { emoji: '😊', label: '还不错', colors: 'bg-sky-400' },
-    5: { emoji: '😄', label: '棒极了', colors: 'bg-green-400' },
-};
-
 const STORAGE_KEY = 'moodJournalEntries';
 const SUMMARY_CACHE_KEY = 'moodJournalSummaryCache';
-const dateToKey = (date: Date): string => date.toISOString().split('T')[0];
-
-
-// Helper Components
-const SimpleMarkdownRenderer: React.FC<{ text: string }> = ({ text }) => {
-    if (!text) return null;
-    const parts = text.split(/(\*\*.*?\*\*)/g);
-    return (
-        <React.Fragment>
-            {parts.map((part, index) =>
-                part.startsWith('**') && part.endsWith('**') ? (
-                    <strong key={index} className="font-bold text-amber-900">{part.slice(2, -2)}</strong>
-                ) : (
-                    part
-                )
-            )}
-        </React.Fragment>
-    );
-};
-
-const CalendarView: React.FC<{
-    currentDate: Date;
-    entries: Record<string, MoodEntry>;
-    selectedDate: Date;
-    onSelectDate: (date: Date) => void;
-    onChangeMonth: (date: Date) => void;
-}> = ({ currentDate, entries, selectedDate, onSelectDate, onChangeMonth }) => {
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-    const firstDayOfMonth = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-    const blanks = Array(firstDayOfMonth).fill(null);
-    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-
-    return (
-        <div className="p-4 bg-slate-50 rounded-xl border">
-            <div className="flex justify-between items-center mb-4">
-                <button onClick={() => onChangeMonth(new Date(year, month - 1, 1))} className="p-2 rounded-full hover:bg-slate-200">&lt;</button>
-                <h3 className="font-bold text-lg text-slate-700">{`${year}年 ${month + 1}月`}</h3>
-                <button onClick={() => onChangeMonth(new Date(year, month + 1, 1))} className="p-2 rounded-full hover:bg-slate-200">&gt;</button>
-            </div>
-            <div className="grid grid-cols-7 gap-1 text-center text-sm">
-                {['日', '一', '二', '三', '四', '五', '六'].map(d => <div key={d} className="font-semibold text-slate-500 py-2">{d}</div>)}
-                {blanks.map((_, i) => <div key={`blank-${i}`} />)}
-                {days.map(day => {
-                    const date = new Date(year, month, day);
-                    const dateKey = dateToKey(date);
-                    const entry = entries[dateKey];
-                    const moodInfo = entry ? MOODS.find(m => m.value === entry.mood) : null;
-                    const isSelected = dateToKey(selectedDate) === dateKey;
-
-                    return (
-                         <div key={day} className="relative aspect-square">
-                            <button
-                                onClick={() => onSelectDate(date)}
-                                className={`absolute inset-0.5 flex items-center justify-center rounded-full transition-all duration-200
-                                    ${isSelected ? 'ring-2 ring-indigo-500 ring-offset-1' : ''}
-                                    ${moodInfo ? `${moodInfo.colors.calendarBg} text-white hover:opacity-80` : 'bg-slate-200 hover:bg-slate-300'}
-                                `}
-                            >
-                                <span className={`absolute top-1 left-1.5 text-xs font-bold ${moodInfo ? 'text-white/80' : 'text-slate-500'}`}>{day}</span>
-                                {moodInfo?.emoji && <span className="text-2xl mt-1">{moodInfo.emoji}</span>}
-                            </button>
-                        </div>
-                    );
-                })}
-            </div>
-        </div>
-    );
-};
-
-const EditorView: React.FC<{
-    selectedDate: Date;
-    selectedMood: Mood | null;
-    journalText: string;
-    onMoodChange: (mood: Mood) => void;
-    onTextChange: (text: string) => void;
-    onSave: () => void;
-    onClear: () => void;
-    onBackToCalendar: () => void;
-}> = ({ selectedDate, selectedMood, journalText, onMoodChange, onTextChange, onSave, onClear, onBackToCalendar }) => (
-    <div className="p-4 bg-slate-50 rounded-xl border flex flex-col h-full">
-        <button onClick={onBackToCalendar} className="md:hidden flex items-center gap-2 text-sm font-semibold text-slate-600 mb-4 self-start bg-slate-200 px-3 py-1 rounded-full hover:bg-slate-300">
-            <ArrowLeftIcon className="h-4 w-4" />
-            <span>返回日历</span>
-        </button>
-        <h3 className="text-lg font-bold text-slate-800 mb-1">记录 {selectedDate.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })}</h3>
-        <p className="text-slate-500 text-sm mb-4">今天感觉怎么样？</p>
-
-        <div className="grid grid-cols-5 gap-1 items-center mb-4">
-            {MOODS.map(m => (
-                <button 
-                    key={m.value} 
-                    onClick={() => onMoodChange(m.value)}
-                    className={`flex flex-col items-center gap-1.5 p-1 rounded-lg transition-all transform hover:scale-110 focus:outline-none ${selectedMood === m.value ? `ring-2 ${m.colors.ring}` : ''}`}
-                >
-                    <span className="text-3xl sm:text-4xl">{m.emoji}</span>
-                    <span className={`text-xs font-semibold ${selectedMood === m.value ? m.colors.text : 'text-slate-600'}`}>{m.label}</span>
-                </button>
-            ))}
-        </div>
-
-        <textarea
-            value={journalText}
-            onChange={(e) => onTextChange(e.target.value)}
-            placeholder="有什么想记下来的吗？（可选）"
-            rows={6}
-            className="w-full p-3 rounded-lg border-2 border-slate-200 focus:ring-indigo-500 focus:border-indigo-500 transition flex-grow"
-        />
-        <div className="flex justify-end gap-3 mt-4">
-            <button onClick={onClear} title="清除当天记录" className="p-2 rounded-lg bg-slate-200 text-slate-600 font-semibold hover:bg-red-100 hover:text-red-700 transition">
-                <TrashIcon className="h-5 w-5"/>
-            </button>
-            <button 
-                onClick={onSave} 
-                disabled={!selectedMood}
-                className="px-6 py-2 rounded-lg bg-indigo-500 text-white font-semibold hover:bg-indigo-600 transition disabled:bg-slate-300 disabled:cursor-not-allowed"
-            >
-                保存
-            </button>
-        </div>
-    </div>
-);
 
 // Main Component
 const MoodJournal: React.FC<MoodJournalProps> = ({ onBack }) => {
@@ -174,6 +40,7 @@ const MoodJournal: React.FC<MoodJournalProps> = ({ onBack }) => {
         try {
             if (GEMINI_API_KEY_B64) {
                 const apiKey = atob(GEMINI_API_KEY_B64);
+                // FIX: Corrected initialization of GoogleGenAI client according to guidelines.
                 setAi(new GoogleGenAI({ apiKey }));
             }
         } catch (e) { console.error("Failed to initialize GoogleGenAI:", e); }
@@ -230,6 +97,7 @@ ${context}
 格式示例: **总结:** [你的总结]|||**小建议:** [你的建议]`;
 
             try {
+                // FIX: Switched to the correct model name 'gemini-2.5-flash' from deprecated 'gemini-pro'.
                 const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
                 const fullText = response.text;
                 setAiSummary(fullText);

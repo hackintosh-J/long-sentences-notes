@@ -1,7 +1,7 @@
 import React from 'react';
 import SentenceAnalysis from './SentenceAnalysis';
-import { SENTENCES_DATA } from '../constants';
-import { ArrowLeftIcon } from './icons';
+import { SENTENCES_DATA } from '../../constants';
+import { ArrowLeftIcon } from '../icons';
 
 interface EnglishCornerProps {
     onBack: () => void;

@@ -1,55 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { GoogleGenAI } from "@google/genai";
-import { GEMINI_API_KEY_B64 } from '../apiKey';
-import { DAILY_NOTES, FUN_FACTS } from '../constants';
+import { GEMINI_API_KEY_B64 } from '../../apiKey';
+import { DAILY_NOTES, FUN_FACTS } from '../../constants';
 import { 
     BookIcon, PoliticsIcon, MedicineIcon, SparklesIcon, ClockIcon, JournalIcon, PuzzleIcon,
     RefreshIcon, SpinnerIcon, FeatherIcon, LightbulbIcon, TranslationIcon
-} from './icons';
-import type { Page } from '../types';
+} from '../icons';
+import type { Page } from '../../types';
+import { getRandomItem } from '../../utils/helpers';
+import SimpleMarkdownRenderer from '../common/SimpleMarkdownRenderer';
+import LoadingOverlay from './LoadingOverlay';
+import ModuleCard from './ModuleCard';
+import BriefingCard from './BriefingCard';
 
 interface DashboardProps {
   onNavigate: (page: Page) => void;
 }
-
-// --- Helper Functions and Components ---
-const getRandomItem = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
-
-const SimpleMarkdownRenderer: React.FC<{ text: string }> = ({ text }) => {
-    if (!text) return null;
-    const parts = text.split(/(\*\*.*?\*\*)/g);
-    return (
-        <React.Fragment>
-            {parts.map((part, index) =>
-                part.startsWith('**') && part.endsWith('**') ? (
-                    <strong key={index}>{part.slice(2, -2)}</strong>
-                ) : (
-                    part
-                )
-            )}
-        </React.Fragment>
-    );
-};
-
-const renderFunFactWithHighlight = (text: string) => {
-    const parts = text.split(/(\*\*.*?\*\*)/g);
-    return parts.map((part, index) => {
-        if (part.startsWith('**') && part.endsWith('**')) {
-            return <strong key={index} className="font-bold text-amber-800">{part.slice(2, -2)}</strong>;
-        }
-        return part;
-    });
-};
-
-const LoadingOverlay: React.FC<{ funFact: string }> = ({ funFact }) => (
-    <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-10 rounded-2xl p-4 animate-fadeIn">
-        <SpinnerIcon className="h-8 w-8 text-slate-500" />
-        <p className="mt-4 text-center font-semibold text-slate-600">AI 正在思考中，先来看个趣闻吧！</p>
-        <div className="mt-2 text-sm text-center text-slate-700 bg-amber-50 p-3 rounded-lg border border-amber-200 w-full max-w-sm">
-            {renderFunFactWithHighlight(funFact)}
-        </div>
-    </div>
-);
 
 // --- Type Definitions for AI Content ---
 type BriefingContent = {
@@ -62,7 +28,6 @@ type QuestionCache = { content: string, timestamp: number };
 
 // --- Main Dashboard Component ---
 const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
-    const [funFact, setFunFact] = useState('');
     const [ai, setAi] = useState<GoogleGenAI | null>(null);
     
     // AI Briefing State
@@ -73,6 +38,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     // AI Question State
     const [questionCache, setQuestionCache] = useState<QuestionCache | null>(null);
     const [isQuestionLoading, setIsQuestionLoading] = useState(false);
+    const [streamedQuestion, setStreamedQuestion] = useState("");
     const [showQuestionAnswer, setShowQuestionAnswer] = useState(false);
     
     // --- Initialization ---
@@ -153,26 +119,127 @@ ${prompts.word}`;
         setIsQuestionLoading(true);
         setLoadingFunFact(getRandomItem(FUN_FACTS));
         setShowQuestionAnswer(false);
+        setStreamedQuestion("");
+        setQuestionCache(null);
 
         const subject = Math.random() > 0.5 ? '西医综合306' : '考研政治';
-        const prompt = `As an expert in China's graduate school entrance exams for ${subject}, create one challenging multiple-choice question about a core concept. Provide four options (A, B, C, D). Use markdown for emphasis (e.g., **bold**). Then, on a new line after a separator "=====", provide the correct answer and a detailed explanation for why the correct answer is right and the others are wrong. The entire response must be in Chinese.`;
+        const prompt = `As an expert in China's graduate school entrance exams for ${subject}, create one challenging multiple-choice question about a core concept. Provide four options (A, B, C, D). IMPORTANT: Do NOT bold, star, or otherwise emphasize the correct answer within the question or options. Use markdown for general emphasis if needed. Then, on a new line after a separator "=====", provide the correct answer and a detailed explanation for why the correct answer is right and the others are wrong. The entire response must be in Chinese.`;
         
         try {
-            const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-            const newCache: QuestionCache = { content: response.text, timestamp: Date.now() };
+            const responseStream = await ai.models.generateContentStream({ model: 'gemini-2.5-flash', contents: prompt });
+            
+            let fullText = "";
+            for await (const chunk of responseStream) {
+                const chunkText = chunk.text;
+                if (chunkText) {
+                    fullText += chunkText;
+                    setStreamedQuestion(fullText);
+                }
+            }
+
+            const newCache: QuestionCache = { content: fullText, timestamp: Date.now() };
             setQuestionCache(newCache);
             localStorage.setItem('aiDashboardQuestion', JSON.stringify(newCache));
         } catch (error) {
             console.error("Question generation failed:", error);
+            setStreamedQuestion("抱歉，题目生成失败，请稍后再试。=====");
         } finally {
             setIsQuestionLoading(false);
         }
     }, [ai]);
 
-    const renderQuestion = () => {
-        if (!questionCache?.content) return <p className="text-slate-500 text-sm">点击上方按钮，生成一道题目来检验学习成果吧！</p>;
+    // --- Briefing Card Renderers ---
+    const FocusRenderer = ({ content }: { content: string }) => {
+        if (!content) return <div className="h-full bg-slate-200 rounded animate-pulse"></div>;
+        const items = content.split('\n').map(s => s.trim()).filter(s => s.startsWith('- ') || s.startsWith('* '));
+        return (
+            <ul className="space-y-2 text-base">
+                {items.map((item, index) => (
+                    <li key={index} className="flex items-start">
+                        <span className="text-green-600 font-bold mr-3 mt-1 text-lg">›</span>
+                        <span className="text-slate-800">{item.substring(2)}</span>
+                    </li>
+                ))}
+            </ul>
+        );
+    };
+    
+    const ClarificationRenderer = ({ content }: { content: string }) => {
+        if (!content) return <div className="h-full bg-slate-200 rounded animate-pulse"></div>;
+        const parts = content.split(/:(.*)/s);
+        const terms = parts[0] || '';
+        const explanation = parts[1] || '';
+
+        const termParts = terms.split(/(\*\*.*?\*\*)/g).filter(Boolean);
+
+        return (
+            <div>
+                <div className="text-2xl font-bold mb-3">
+                    {termParts.map((part, index) =>
+                        part.startsWith('**') && part.endsWith('**') ? (
+                            <span key={index} className="text-amber-700">{part.slice(2, -2)}</span>
+                        ) : (
+                            <span key={index} className="text-slate-600">{part}</span>
+                        )
+                    )}
+                </div>
+                <p className="text-slate-800 text-lg leading-relaxed">{explanation.trim()}</p>
+            </div>
+        );
+    };
+
+    const WordRenderer = ({ content }: { content: string }) => {
+        if (!content) return <div className="h-full bg-slate-200 rounded animate-pulse"></div>;
+
+        const lines = content.split('\n').filter(line => line.trim() !== '');
+        const wordLine = lines[0] || '';
+        const enLine = lines.find(l => l.toUpperCase().startsWith('EN:')) || '';
+        const zhLine = lines.find(l => l.toUpperCase().startsWith('ZH:')) || '';
+        const exLine = lines.find(l => l.toUpperCase().startsWith('EX:')) || '';
         
-        const [questionPart, answerPart] = questionCache.content.split('=====');
+        const word = wordLine.replace(/\*\*/g, '');
+        const en = enLine.replace(/EN:/i, '').trim();
+        const zh = zhLine.replace(/ZH:/i, '').trim();
+        const ex = exLine.replace(/Ex:/i, '').trim();
+
+        const highlightWordInSentence = (sentence: string, wordToHighlight: string) => {
+            if (!sentence || !wordToHighlight) return sentence;
+            const regex = new RegExp(`\\b(${wordToHighlight.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})\\b`, 'gi');
+            const parts = sentence.split(regex);
+            return parts.map((part, i) =>
+                i % 2 === 1 ? (
+                    <strong key={i} className="text-sky-700 font-bold bg-sky-100/80 px-1 rounded">{part}</strong>
+                ) : (
+                    part
+                )
+            );
+        };
+
+        return (
+            <div>
+                <div className="mb-4">
+                    <p className="text-3xl font-extrabold text-sky-800 tracking-tight">{word}</p>
+                    <p className="font-semibold text-sky-600 text-xl mt-1">{zh}</p>
+                </div>
+                <div className="pt-3 border-t border-sky-200/80 space-y-2 text-base">
+                    {en && <p className="text-slate-600"><strong className="font-semibold text-slate-800">英文释义:</strong> {en}</p>}
+                    {ex && <p className="text-slate-600"><strong className="font-semibold text-slate-800">例句:</strong> {highlightWordInSentence(ex, word)}</p>}
+                </div>
+            </div>
+        );
+    };
+
+    const renderQuestion = () => {
+        const contentToRender = (isQuestionLoading && streamedQuestion) ? streamedQuestion : questionCache?.content;
+
+        if (!contentToRender) {
+            if (!isQuestionLoading) {
+                return <p className="text-slate-500 text-sm mt-4">点击上方按钮，生成一道题目来检验学习成果吧！</p>;
+            }
+            return null; // Loading overlay is active
+        }
+        
+        const [questionPart, answerPart] = contentToRender.split('=====');
         return (
             <div className="mt-4 space-y-4">
                 <div className="whitespace-pre-wrap text-slate-700 leading-relaxed">
@@ -252,81 +319,36 @@ ${prompts.word}`;
                         <RefreshIcon className="h-4 w-4"/> 刷新
                     </button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                     <BriefingCard title="今日重点" icon={<FeatherIcon className="h-5 w-5 mr-2 text-green-500"/>} content={briefingCache?.content.focus} />
-                     <BriefingCard title="概念辨析" icon={<LightbulbIcon className="h-5 w-5 mr-2 text-amber-500"/>} content={briefingCache?.content.clarification} />
-                     <BriefingCard title="每日一词" icon={<TranslationIcon className="h-5 w-5 mr-2 text-sky-500"/>} content={briefingCache?.content.word} />
-                     <BriefingCard title="每日寄语" icon={<SparklesIcon className="h-5 w-5 mr-2 text-rose-500"/>} content={briefingCache?.dailyNote.replace('考研人的每日寄语：', '')} isNote={true}/>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <BriefingCard title="今日重点" icon={<FeatherIcon className="h-6 w-6 mr-2 text-green-500"/>}>
+                        <FocusRenderer content={briefingCache?.content.focus || ''} />
+                     </BriefingCard>
+                     <BriefingCard title="每日寄语" icon={<SparklesIcon className="h-6 w-6 mr-2 text-rose-500"/>} isNote={true}>
+                        {briefingCache ? <p className="text-lg leading-loose whitespace-pre-wrap text-center">{briefingCache.dailyNote.replace('考研人的每日寄语：', '')}</p> : <div className="h-full bg-slate-200 rounded animate-pulse"></div>}
+                     </BriefingCard>
+                     <BriefingCard title="概念辨析" icon={<LightbulbIcon className="h-6 w-6 mr-2 text-amber-500"/>}>
+                        <ClarificationRenderer content={briefingCache?.content.clarification || ''} />
+                     </BriefingCard>
+                     <BriefingCard title="每日一词" icon={<TranslationIcon className="h-6 w-6 mr-2 text-sky-500"/>}>
+                        <WordRenderer content={briefingCache?.content.word || ''} />
+                     </BriefingCard>
                 </div>
             </div>
 
             {/* AI Daily Question Section */}
             <div className="relative bg-white p-6 rounded-2xl shadow-lg border border-slate-200/80">
-                {isQuestionLoading && <LoadingOverlay funFact={loadingFunFact} />}
+                {isQuestionLoading && !streamedQuestion && <LoadingOverlay funFact={loadingFunFact} />}
                 <h3 className="flex items-center text-xl font-bold text-slate-700 mb-4">
                     <BookIcon className="h-6 w-6 mr-2 text-indigo-500"/>
                     知识点自测
                 </h3>
                 <button onClick={fetchQuestion} disabled={isQuestionLoading || !ai} className="w-full sm:w-auto bg-indigo-500 text-white font-bold py-2 px-6 rounded-full hover:bg-indigo-600 transition-all duration-300 transform hover:scale-105 disabled:bg-slate-300 disabled:scale-100 flex items-center justify-center gap-2">
-                    {isQuestionLoading ? <><SpinnerIcon className="h-5 w-5"/> 正在出题...</> : (questionCache ? '换一道题' : '开始自测')}
+                    {isQuestionLoading ? <><SpinnerIcon className="h-5 w-5"/> 正在出题...</> : (questionCache || streamedQuestion ? '换一道题' : '开始自测')}
                 </button>
                 {renderQuestion()}
             </div>
-
-
-            {/* Fun Fact Corner */}
-            <div>
-                <h2 className="text-2xl font-bold text-slate-700 mb-4">知识角落</h2>
-                 <div className="bg-white p-6 rounded-2xl shadow-md border border-slate-200/80 text-center">
-                    <SparklesIcon className="h-10 w-10 text-amber-500 mx-auto mb-3"/>
-                    <p className="text-slate-600 mb-4">学习累了？来点有趣的知识放松一下吧！</p>
-                    <button onClick={() => setFunFact(getRandomItem(FUN_FACTS))} className="bg-amber-500 text-white font-bold py-2 px-6 rounded-full hover:bg-amber-600 transition-all duration-300 transform hover:scale-105">
-                        获取趣味小知识
-                    </button>
-                    {funFact && <p className="text-slate-700 mt-4 p-4 bg-amber-50 rounded-lg animate-fadeIn leading-relaxed">{renderFunFactWithHighlight(funFact)}</p>}
-                 </div>
-            </div>
         </div>
     );
 };
-
-// --- Sub-components for Dashboard ---
-interface ModuleCardProps {
-    icon: React.ReactNode;
-    title: string;
-    description: string;
-    color: string;
-    onClick?: () => void;
-}
-
-const ModuleCard: React.FC<ModuleCardProps> = ({ icon, title, description, color, onClick }) => {
-    const cardClasses = `relative group p-6 rounded-2xl text-white overflow-hidden transition-all duration-300 transform hover:scale-105 hover:shadow-2xl cursor-pointer h-full flex flex-col justify-between`;
-    return (
-        <div className={cardClasses} onClick={onClick}>
-            <div className={`absolute inset-0 bg-gradient-to-br ${color} transition-transform duration-300 group-hover:scale-110`}></div>
-            <div className="relative z-10">
-                <div className="mb-3">{icon}</div>
-                <h3 className="text-xl font-bold">{title}</h3>
-                <p className="text-sm opacity-80 mt-1">{description}</p>
-            </div>
-        </div>
-    );
-};
-
-interface BriefingCardProps {
-    title: string;
-    icon: React.ReactNode;
-    content?: string;
-    isNote?: boolean;
-}
-
-const BriefingCard: React.FC<BriefingCardProps> = ({ title, icon, content, isNote = false }) => (
-    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 min-h-[14rem] flex flex-col">
-        <h4 className="flex items-center text-md font-bold text-slate-700 mb-3">{icon}{title}</h4>
-        <div className={`whitespace-pre-wrap leading-relaxed text-sm flex-grow ${isNote ? 'text-rose-800 font-semibold' : 'text-slate-800'}`}>
-            {content ? <SimpleMarkdownRenderer text={content} /> : <div className="h-full bg-slate-200 rounded animate-pulse"></div>}
-        </div>
-    </div>
-);
 
 export default Dashboard;

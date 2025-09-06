@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
     ArrowLeftIcon, GraduationCapIcon, PencilIcon, AtomIcon, FlaskIcon, 
     GlobeAltIcon, ScaleIcon, ChartBarIcon, ClipboardDocumentCheckIcon, RefreshIcon 
-} from './icons';
+} from '../icons';
 
 interface MemoryGameProps {
     onBack: () => void;
@@ -56,7 +56,7 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack }) => {
         }
 
         const newCards = cards.map(card =>
-            card.id === clickedCard.id ? { ...card, status: 'flipped' } : card
+            card.id === clickedCard.id ? { ...card, status: 'flipped' as const } : card
         );
         setCards(newCards);
         setFlippedCards([...flippedCards, clickedCard]);
@@ -72,7 +72,6 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack }) => {
                 // Match
                 setTimeout(() => {
                     setCards(prevCards => prevCards.map(card => 
-                        // FIX: Added 'as const' to prevent TypeScript from widening the status type to 'string'.
                         card.type === firstCard.type ? { ...card, status: 'matched' as const } : card
                     ));
                     setFlippedCards([]);
@@ -82,7 +81,6 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack }) => {
                 // No match
                 setTimeout(() => {
                     setCards(prevCards => prevCards.map(card => 
-                       // FIX: Added 'as const' to prevent TypeScript from widening the status type to 'string'.
                        (card.id === firstCard.id || card.id === secondCard.id) ? { ...card, status: 'default' as const } : card
                     ));
                     setFlippedCards([]);

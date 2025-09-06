@@ -1,58 +1,8 @@
 import React, { useState, useRef, useCallback } from 'react';
-import type { SentenceData, Annotation, AnnotationType } from '../types';
-import { TranslationIcon, LightbulbIcon, SpeakerIcon, EyeIcon, EyeOffIcon, PracticeIcon } from './icons';
-
-interface InteractiveWordProps {
-  annotation: Annotation;
-  onHover: (annotation: Annotation, element: HTMLSpanElement) => void;
-  onLeave: () => void;
-  colorClass: string;
-  isHighlighted: boolean;
-  highlightColorClass: string;
-  isPracticeMode: boolean;
-}
-
-const InteractiveWord: React.FC<InteractiveWordProps> = ({ annotation, onHover, onLeave, colorClass, isHighlighted, highlightColorClass, isPracticeMode }) => {
-  const ref = useRef<HTMLSpanElement>(null);
-
-  const handleMouseEnter = () => {
-    if (ref.current) {
-      onHover(annotation, ref.current);
-    }
-  };
-
-  const practiceModeClasses = 'bg-slate-200 text-transparent hover:bg-slate-300';
-  const normalModeClasses = `${colorClass} hover:${colorClass.replace('100', '200')} ${!isPracticeMode && isHighlighted ? `ring-2 ring-offset-2 ${highlightColorClass}` : ''}`;
-
-  return (
-    <span
-      ref={ref}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={onLeave}
-      className={`cursor-pointer rounded-md px-1 py-0.5 transition-all duration-300 ease-in-out font-semibold ${isPracticeMode ? practiceModeClasses : normalModeClasses}`}
-    >
-      {annotation.text}
-    </span>
-  );
-};
-
-interface TooltipProps {
-  annotation: Annotation | null;
-  position: { top: number; left: number } | null;
-}
-
-const Tooltip: React.FC<TooltipProps> = ({ annotation, position }) => {
-  if (!annotation || !position) return null;
-
-  return (
-    <div
-      className="absolute z-30 bg-slate-800 text-white rounded-lg shadow-xl px-4 py-3 text-sm max-w-xs transition-opacity duration-200"
-      style={{ top: position.top, left: position.left, transform: 'translate(-50%, -100%)' }}
-    >
-      <p className="whitespace-pre-wrap font-sans">{annotation.explanation}</p>
-    </div>
-  );
-};
+import type { SentenceData, Annotation, AnnotationType } from '../../types';
+import { TranslationIcon, LightbulbIcon, SpeakerIcon, EyeIcon, EyeOffIcon, PracticeIcon } from '../icons';
+import InteractiveWord from './InteractiveWord';
+import Tooltip from './Tooltip';
 
 interface SentenceAnalysisProps {
   data: SentenceData;

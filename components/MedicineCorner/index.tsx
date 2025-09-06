@@ -1,8 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { SUBSTRATES, METABOLIC_PATHWAYS_DATA } from '../constants';
-import type { Substrate, MetabolicPathway, CalculationStep } from '../types';
-// FIX: Replaced non-existent BrainIcon with LightbulbIcon to fix an import error.
-import { ArrowLeftIcon, LightbulbIcon } from './icons';
+import { SUBSTRATES, METABOLIC_PATHWAYS_DATA } from '../../constants';
+import type { Substrate, MetabolicPathway } from '../../types';
+import { ArrowLeftIcon, LightbulbIcon } from '../icons';
 
 interface MedicineCornerProps {
     onBack: () => void;
