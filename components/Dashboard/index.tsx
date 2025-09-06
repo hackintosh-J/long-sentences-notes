@@ -319,14 +319,14 @@ ${prompts.word}`;
                         <RefreshIcon className="h-4 w-4"/> 刷新
                     </button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-2 gap-6 items-start">
                      <BriefingCard title="今日重点" icon={<FeatherIcon className="h-6 w-6 mr-2 text-green-500"/>}>
                         <FocusRenderer content={briefingCache?.content.focus || ''} />
                      </BriefingCard>
                      <BriefingCard title="每日寄语" icon={<SparklesIcon className="h-6 w-6 mr-2 text-rose-500"/>} isNote={true}>
-                        {briefingCache ? <p className="text-lg leading-loose whitespace-pre-wrap text-center">{briefingCache.dailyNote.replace('考研人的每日寄语：', '')}</p> : <div className="h-full bg-slate-200 rounded animate-pulse"></div>}
+                        {briefingCache ? <p className="text-lg leading-loose text-center">{briefingCache.dailyNote.replace('考研人的每日寄语：', '')}</p> : <div className="h-full bg-slate-200 rounded animate-pulse"></div>}
                      </BriefingCard>
-                     <BriefingCard title="概念辨析" icon={<LightbulbIcon className="h-6 w-6 mr-2 text-amber-500"/>}>
+                     <BriefingCard title="概念辨析" icon={<LightbulbIcon className="h-6 w-6 mr-2 text-amber-500"/>} className="min-h-0">
                         <ClarificationRenderer content={briefingCache?.content.clarification || ''} />
                      </BriefingCard>
                      <BriefingCard title="每日一词" icon={<TranslationIcon className="h-6 w-6 mr-2 text-sky-500"/>}>
