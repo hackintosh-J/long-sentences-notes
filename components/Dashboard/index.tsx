@@ -439,11 +439,11 @@ ${prompts.word}`;
                     </button>
                 </div>
                 <div className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-                         <BriefingCard title="今日重点" icon={<FeatherIcon className="h-6 w-6 mr-2 text-green-500"/>} className="md:col-span-1">
+                    <div className="grid grid-cols-2 gap-4 items-start">
+                         <BriefingCard title="今日重点" icon={<FeatherIcon className="h-6 w-6 mr-2 text-green-500"/>}>
                             <FocusRenderer content={briefingCache?.content.focus || ''} />
                          </BriefingCard>
-                         <BriefingCard title="每日寄语" icon={<SparklesIcon className="h-6 w-6 mr-2 text-rose-500"/>} isNote={true} className="md:col-span-1">
+                         <BriefingCard title="每日寄语" icon={<SparklesIcon className="h-6 w-6 mr-2 text-rose-500"/>} isNote={true}>
                             {briefingCache ? (
                                 <div className="text-2xl leading-relaxed text-left">
                                     {briefingCache.dailyNote.replace('考研人的每日寄语：', '').split(/(?<=[，。！？、；：])/)
