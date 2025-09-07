@@ -2,10 +2,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Type as GeminiType } from "@google/genai";
 import { DAILY_NOTES, FUN_FACTS } from '../../constants';
 import { FALLBACK_BRIEFING_CONTENTS, FALLBACK_SENTENCE_DATA } from '../../constants/fallbackContent';
-import { generateContent, generateContentStream } from '../../services/aiService';
+import { generateContent, generateContentStream, getAiProvider } from '../../services/aiService';
 import { 
     BookIcon, PoliticsIcon, MedicineIcon, SparklesIcon, ClockIcon, JournalIcon, PuzzleIcon,
-    RefreshIcon, SpinnerIcon, FeatherIcon, LightbulbIcon, TranslationIcon
+    RefreshIcon, SpinnerIcon, FeatherIcon, LightbulbIcon, TranslationIcon, BrainCircuitIcon
 } from '../icons';
 import type { Page, SentenceAnalysisData } from '../../types';
 import { getRandomItem } from '../../utils/helpers';
@@ -14,6 +14,8 @@ import LoadingOverlay from './LoadingOverlay';
 import ModuleCard from './ModuleCard';
 import BriefingCard from './BriefingCard';
 import SentenceAnalysisCard from './SentenceAnalysisCard';
+import Brainstorm from './Brainstorm';
+import MarkdownRenderer from '../common/MarkdownRenderer';
 
 
 interface DashboardProps {
@@ -37,13 +39,17 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     // AI Briefing State
     const [briefingCache, setBriefingCache] = useState<BriefingCache | null>(null);
     const [isBriefingLoading, setIsBriefingLoading] = useState(false);
-    const [loadingFunFact, setLoadingFunFact] = useState(getRandomItem(FUN_FACTS));
+    const [briefingThinkingText, setBriefingThinkingText] = useState('');
+    const [isBriefingThinkingComplete, setIsBriefingThinkingComplete] = useState(false);
+
     
     // AI Question State
     const [questionCache, setQuestionCache] = useState<QuestionCache | null>(null);
     const [isQuestionLoading, setIsQuestionLoading] = useState(false);
     const [streamedQuestion, setStreamedQuestion] = useState("");
     const [showQuestionAnswer, setShowQuestionAnswer] = useState(false);
+    const [questionThinkingText, setQuestionThinkingText] = useState('');
+    const [isQuestionThinkingComplete, setIsQuestionThinkingComplete] = useState(false);
 
     // AI Sentence State
     const [sentenceCache, setSentenceCache] = useState<SentenceCache | null>(null);
@@ -69,16 +75,17 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     
     // --- AI Fetching and Caching Logic ---
     const fetchBriefing = useCallback(async (forceRefresh = false) => {
+        if (!forceRefresh) return;
+        
         setIsBriefingLoading(true);
-        if(forceRefresh) {
-            setIsSentenceLoading(true);
-        }
-        setLoadingFunFact(getRandomItem(FUN_FACTS));
+        setIsSentenceLoading(true);
+        setBriefingThinkingText('');
+        setIsBriefingThinkingComplete(getAiProvider() === 'gemini');
 
         const prompts = {
-            focus: `列出2-3个针对中国考研西医综合或政治的、高度具体的核心复习概念。使用项目符号。要求极简(总共50字以内)。例如:\n- 心脏周期\n- 矛盾的同一性`,
-            clarification: `主动选择一对中国考研(政治或西医综合)中极易混淆的概念，并用一句话解释其核心区别。要求极简(80字以内)。用Markdown **加粗** 关键概念。例如: **意识**与**物质**: 物质决定意识，意识是物质的反映。`,
-            word: `提供一个与学术阅读(如考研英语)相关的高阶英语单词。格式如下:\n**单词**\nEN: [简短英文释义]\nZH: [简短中文释义]\nEx: [简短例句]。整体回答必须非常简短。`,
+            focus: `请随机列出2-3个针对中国考研西医综合或政治的、高度具体的核心复习概念。使用项目符号。要求极简(总共50字以内)。例如:\n- 心脏周期\n- 矛盾的同一性`,
+            clarification: `请随机主动选择一对中国考研(政治或西医综合)中极易混淆的概念，并用一句话解释其核心区别。要求极简(80字以内)。用Markdown **加粗** 关键概念。例如: **意识**与**物质**: 物质决定意识，意识是物质的反映。`,
+            word: `请随机提供一个与学术阅读(如考研英语)相关的高阶英语单词。格式如下:\n**单词**\nEN: [简短英文释义]\nZH: [简短中文释义]\nEx: [简短例句]。整体回答必须非常简短。`,
             sentence: `
 Please create a "Sentence of the Day" for a Chinese student preparing for the postgraduate entrance exam (考研英语). The sentence should be a complex long sentence from a real exam paper or of similar difficulty.
 Your response MUST be a single JSON object. Do not include any text outside of the JSON object.
@@ -117,24 +124,43 @@ ${prompts.word}`;
             required: ['sentence', 'translation', 'components']
         };
 
-        const TIMEOUT_DURATION = 20000; // 20 seconds
-        const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('timeout')), TIMEOUT_DURATION)
-        );
+        const TIMEOUT_DURATION = 20000;
+        const provider = getAiProvider();
+        
+        const sentencePromise = generateContent({ prompt: prompts.sentence, jsonSchema: sentenceResponseSchema, timeout: TIMEOUT_DURATION });
+
+        const briefingPromise = (async () => {
+            if (provider === 'zhipu') {
+                let fullText = "";
+                const stream = generateContentStream(combinedPrompt, TIMEOUT_DURATION);
+                let thinkingDone = false;
+                for await (const chunk of stream) {
+                    if (chunk.parsed) {
+                        if (chunk.parsed.type === 'thinking') {
+                            setBriefingThinkingText(prev => prev + chunk.parsed.content);
+                        } else {
+                             if (!thinkingDone) {
+                                setIsBriefingThinkingComplete(true);
+                                thinkingDone = true;
+                            }
+                            fullText += chunk.parsed.content;
+                        }
+                    }
+                }
+                setIsBriefingThinkingComplete(true);
+                return fullText;
+            } else {
+                return generateContent({ prompt: combinedPrompt, timeout: TIMEOUT_DURATION });
+            }
+        })();
+
 
         try {
-            const generationPromise = Promise.all([
-                (forceRefresh || !briefingCache) ? generateContent({ prompt: combinedPrompt }) : Promise.resolve(null),
-                (forceRefresh || !sentenceCache) ? generateContent({ prompt: prompts.sentence, jsonSchema: sentenceResponseSchema }) : Promise.resolve(null)
-            ]);
+            const [briefingResult, sentenceResult] = await Promise.allSettled([briefingPromise, sentencePromise]);
 
-            const [briefingResponseText, sentenceResponseText] = await Promise.race([
-                generationPromise,
-                timeoutPromise,
-            ]) as [string | null, string | null];
-
-
-            if (briefingResponseText) {
+            // Handle Briefing Result
+            if (briefingResult.status === 'fulfilled' && briefingResult.value) {
+                const briefingResponseText = briefingResult.value;
                 const fullText = briefingResponseText;
                 const focusMatch = fullText.match(/\|\|\|FOCUS\|\|\|([\s\S]*?)(?=\|\|\|CLARIFICATION\|\|\||$)/);
                 const clarificationMatch = fullText.match(/\|\|\|CLARIFICATION\|\|\|([\s\S]*?)(?=\|\|\|WORD\|\|\||$)/);
@@ -152,76 +178,94 @@ ${prompts.word}`;
                 };
                 setBriefingCache(newCache);
                 localStorage.setItem('aiDashboardBriefing', JSON.stringify(newCache));
+            } else {
+                // FIX: Check promise status before accessing 'reason' to resolve type error.
+                if (briefingResult.status === 'rejected') {
+                    console.warn('Briefing generation failed:', briefingResult.reason);
+                } else {
+                    console.warn('Briefing generation failed: Received empty content.');
+                }
+                const fallbackContent = getRandomItem(FALLBACK_BRIEFING_CONTENTS);
+                const newCache: BriefingCache = {
+                    content: fallbackContent,
+                    dailyNote: getRandomItem(DAILY_NOTES),
+                    timestamp: Date.now()
+                };
+                setBriefingCache(newCache);
+                localStorage.setItem('aiDashboardBriefing', JSON.stringify(newCache));
             }
+            setIsBriefingLoading(false);
 
-            if(sentenceResponseText){
-                const sentenceData: SentenceAnalysisData = JSON.parse(sentenceResponseText.trim());
+            // Handle Sentence Result
+            if (sentenceResult.status === 'fulfilled' && sentenceResult.value) {
+                const sentenceData: SentenceAnalysisData = JSON.parse(sentenceResult.value.trim());
                 const newSentenceCache: SentenceCache = { content: sentenceData, timestamp: Date.now() };
                 setSentenceCache(newSentenceCache);
                 localStorage.setItem('aiDashboardSentence', JSON.stringify(newSentenceCache));
-            }
-
-        } catch (err) {
-            if (err instanceof Error && err.message === 'timeout') {
-                console.warn('AI generation timed out. Using fallback content.');
-                if (forceRefresh || !briefingCache) {
-                    const fallbackContent = getRandomItem(FALLBACK_BRIEFING_CONTENTS);
-                    const newCache: BriefingCache = {
-                        content: fallbackContent,
-                        dailyNote: getRandomItem(DAILY_NOTES),
-                        timestamp: Date.now()
-                    };
-                    setBriefingCache(newCache);
-                    localStorage.setItem('aiDashboardBriefing', JSON.stringify(newCache));
-                }
-                if (forceRefresh || !sentenceCache) {
-                    const fallbackSentence = getRandomItem(FALLBACK_SENTENCE_DATA);
-                    const newSentenceCache: SentenceCache = { content: fallbackSentence, timestamp: Date.now() };
-                    setSentenceCache(newSentenceCache);
-                    localStorage.setItem('aiDashboardSentence', JSON.stringify(newSentenceCache));
-                }
             } else {
-                 console.error("Briefing/Sentence generation failed:", err);
+                // FIX: Check promise status before accessing 'reason' to resolve type error.
+                if (sentenceResult.status === 'rejected') {
+                    console.warn('Sentence generation failed:', sentenceResult.reason);
+                } else {
+                    console.warn('Sentence generation failed: Received empty content.');
+                }
+                const fallbackSentence = getRandomItem(FALLBACK_SENTENCE_DATA);
+                const newSentenceCache: SentenceCache = { content: fallbackSentence, timestamp: Date.now() };
+                setSentenceCache(newSentenceCache);
+                localStorage.setItem('aiDashboardSentence', JSON.stringify(newSentenceCache));
             }
+        } catch (err) {
+            console.error("An unexpected error occurred during AI fetch:", err);
         } finally {
             setIsBriefingLoading(false);
             setIsSentenceLoading(false);
         }
-    }, [briefingCache, sentenceCache]);
+    }, [sentenceCache]);
 
     const fetchQuestion = useCallback(async () => {
         setIsQuestionLoading(true);
-        setLoadingFunFact(getRandomItem(FUN_FACTS));
         setShowQuestionAnswer(false);
         setStreamedQuestion("");
         setQuestionCache(null);
+        setQuestionThinkingText('');
+        setIsQuestionThinkingComplete(getAiProvider() === 'gemini');
 
         const subject = Math.random() > 0.5 ? '西医综合306' : '考研政治';
         const prompt = `As an expert in China's graduate school entrance exams for ${subject}, create one challenging multiple-choice question about a core concept. Provide four options (A, B, C, D). IMPORTANT: Do NOT bold, star, or otherwise emphasize the correct answer within the question or options. Use markdown for general emphasis if needed. Then, on a new line after a separator "=====", provide the correct answer and a detailed explanation for why the correct answer is right and the others are wrong. The entire response must be in Chinese.`;
         
         try {
-            const responseStream = generateContentStream(prompt);
+            const responseStream = generateContentStream(prompt, 20000);
             
             let fullText = "";
-            let firstChunkReceived = false;
-            for await (const chunkText of responseStream) {
-                if (!firstChunkReceived) {
-                    setIsQuestionLoading(false);
-                    firstChunkReceived = true;
-                }
-                if (chunkText) {
-                    fullText += chunkText;
-                    setStreamedQuestion(fullText);
+            let thinkingDone = false;
+            for await (const chunk of responseStream) {
+                if (chunk.parsed) {
+                    if (chunk.parsed.type === 'thinking') {
+                         setQuestionThinkingText(prev => prev + chunk.parsed.content);
+                    } else if (chunk.parsed.type === 'content' && chunk.parsed.content) {
+                        if (!thinkingDone) {
+                            setIsQuestionThinkingComplete(true);
+                            thinkingDone = true;
+                        }
+                        fullText += chunk.parsed.content;
+                        setStreamedQuestion(fullText);
+                    }
                 }
             }
+            setIsQuestionThinkingComplete(true);
 
             const newCache: QuestionCache = { content: fullText, timestamp: Date.now() };
             setQuestionCache(newCache);
             localStorage.setItem('aiDashboardQuestion', JSON.stringify(newCache));
         } catch (error) {
             console.error("Question generation failed:", error);
-            setStreamedQuestion("抱歉，题目生成失败，请稍后再试。=====");
-            setIsQuestionLoading(false);
+            if (error instanceof Error && error.message === 'timeout') {
+                setStreamedQuestion("抱歉，题目生成超时，请稍后再试。=====");
+            } else {
+                setStreamedQuestion("抱歉，题目生成失败，请稍后再试。=====");
+            }
+        } finally {
+             setIsQuestionLoading(false);
         }
     }, []);
 
@@ -342,7 +386,7 @@ ${prompts.word}`;
         return (
             <div className="mt-4 space-y-4">
                 <div className="whitespace-pre-wrap text-slate-700 leading-relaxed">
-                   <SimpleMarkdownRenderer text={questionPart?.trim() || ''} highlightClassName="font-bold text-indigo-800" />
+                   <MarkdownRenderer text={questionPart?.trim() || ''} />
                 </div>
                  <button onClick={() => setShowQuestionAnswer(!showQuestionAnswer)} className="text-sm font-semibold text-indigo-600 bg-indigo-100 px-3 py-1 rounded-full hover:bg-indigo-200">
                     {showQuestionAnswer ? '隐藏答案' : '显示答案'}
@@ -350,7 +394,7 @@ ${prompts.word}`;
                 {showQuestionAnswer && (
                     <div className="p-4 bg-slate-50 rounded-lg border animate-fadeIn">
                         <div className="whitespace-pre-wrap text-slate-800 leading-relaxed">
-                            <SimpleMarkdownRenderer text={answerPart?.trim() || '答案解析加载失败。'} highlightClassName="font-bold text-indigo-800" />
+                            <MarkdownRenderer text={answerPart?.trim() || '答案解析加载失败。'} />
                         </div>
                     </div>
                 )}
@@ -411,7 +455,7 @@ ${prompts.word}`;
 
             {/* AI Briefing Section */}
             <div ref={briefingRef} className="relative bg-white p-6 rounded-2xl shadow-lg border border-slate-200/80">
-                {(isBriefingLoading || isSentenceLoading) && <LoadingOverlay funFact={loadingFunFact} />}
+                {(isBriefingLoading || isSentenceLoading) && <LoadingOverlay thinkingText={briefingThinkingText} isThinkingComplete={isBriefingThinkingComplete}/>}
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-2xl font-bold text-slate-700">AI 速递</h2>
                     <button onClick={() => fetchBriefing(true)} disabled={isBriefingLoading || isSentenceLoading} className="flex items-center gap-2 bg-slate-200 text-slate-700 font-bold py-1.5 px-4 rounded-full hover:bg-slate-300 transition text-sm disabled:opacity-50">
@@ -447,9 +491,12 @@ ${prompts.word}`;
                 </div>
             </div>
 
+            {/* AI Brainstorm Section */}
+            <Brainstorm />
+            
             {/* AI Daily Question Section */}
             <div className="relative bg-white p-6 rounded-2xl shadow-lg border border-slate-200/80">
-                {isQuestionLoading && <LoadingOverlay funFact={loadingFunFact} />}
+                {isQuestionLoading && <LoadingOverlay thinkingText={questionThinkingText} isThinkingComplete={isQuestionThinkingComplete} showFunFacts={false} />}
                 <h3 className="flex items-center text-xl font-bold text-slate-700 mb-4">
                     <BookIcon className="h-6 w-6 mr-2 text-indigo-500"/>
                     知识点自测

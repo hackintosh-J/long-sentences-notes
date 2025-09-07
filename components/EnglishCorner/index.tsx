@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Type as GeminiType } from "@google/genai";
-import { generateContent } from '../../services/aiService';
+import { generateContent, generateContentStream, getAiProvider } from '../../services/aiService';
 import { ArrowLeftIcon, SparklesIcon, SpinnerIcon } from '../icons';
 import type { CorrectionResponse, CorrectionAnnotation } from '../../types';
 import AnnotatedSpan from './InteractiveWord';
 import Tooltip from './Tooltip';
+import LoadingOverlay from '../Dashboard/LoadingOverlay';
 
 interface EnglishCornerProps {
     onBack: () => void;
@@ -24,6 +25,8 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [result, setResult] = useState<CorrectionResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [thinkingText, setThinkingText] = useState('');
+    const [isThinkingComplete, setIsThinkingComplete] = useState(false);
     
     // State to manage the currently visible tooltip
     const [activeTooltip, setActiveTooltip] = useState<{ 
@@ -39,7 +42,10 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
         setIsLoading(true);
         setResult(null);
         setError(null);
-        setActiveTooltip(null); // Clear active tooltip on new submission
+        setActiveTooltip(null);
+        setThinkingText('');
+        setIsThinkingComplete(getAiProvider() === 'gemini');
+
 
         const prompt = `You are an expert English teacher specializing in evaluating essays for China's Postgraduate Entrance Examination (English I). Please analyze the following essay.
 
@@ -81,15 +87,38 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
             },
             required: ["overallScore", "scoreBasis", "annotations"]
         };
+        
+        const provider = getAiProvider();
 
         try {
-            const jsonStr = await generateContent({
-                prompt: prompt,
-                jsonSchema: responseSchema
-            });
-
-            const data: CorrectionResponse = JSON.parse(jsonStr.trim());
-            setResult(data);
+            if (provider === 'zhipu') {
+                const stream = generateContentStream(prompt, 60000, responseSchema); // 60s timeout for essay
+                let fullJsonString = "";
+                let thinkingDone = false;
+                for await (const chunk of stream) {
+                    if (chunk.parsed) {
+                        if (chunk.parsed.type === 'thinking') {
+                            setThinkingText(prev => prev + chunk.parsed.content);
+                        } else {
+                            if (!thinkingDone) {
+                                setIsThinkingComplete(true);
+                                thinkingDone = true;
+                            }
+                            fullJsonString += chunk.parsed.content;
+                        }
+                    }
+                }
+                setIsThinkingComplete(true);
+                const data: CorrectionResponse = JSON.parse(fullJsonString.trim());
+                setResult(data);
+            } else {
+                 const jsonStr = await generateContent({
+                    prompt: prompt,
+                    jsonSchema: responseSchema
+                });
+                const data: CorrectionResponse = JSON.parse(jsonStr.trim());
+                setResult(data);
+            }
 
         } catch (e) {
             console.error("Error generating correction:", e);
@@ -181,7 +210,8 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
                 </button>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200/80">
+            <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200/80 relative">
+                {isLoading && <div className="absolute inset-0 z-20"><LoadingOverlay thinkingText={thinkingText} isThinkingComplete={isThinkingComplete} /></div>}
                 <h2 className="text-3xl font-bold text-sky-800 mb-2">英语作文智能批改</h2>
                 <p className="text-slate-500 mb-6">粘贴你的作文，AI将根据考研英语（一）标准进行评分和批注。</p>
                 

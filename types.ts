@@ -105,6 +105,12 @@ export interface MetabolicPathway {
     final_note: string;
 }
 
+// Brainstorm Types
+export interface BrainstormKeyword {
+    text: string;
+    source: 'user' | 'ai';
+}
+
 // App Page Type
 export type Page = 'dashboard' | 'english' | 'politics' | 'medicine' | 'focus_garden' | 'mood_journal' | 'memory_game' | 'settings';
 export type ModelProvider = 'gemini' | 'zhipu';

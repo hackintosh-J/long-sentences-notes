@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { generateContent } from '../../services/aiService';
+import { generateContent, generateContentStream, getAiProvider } from '../../services/aiService';
 import { ArrowLeftIcon, SparklesIcon, SpinnerIcon } from '../icons';
 import type { Mood, MoodEntry } from '../../types';
 import { MOODS_CONFIG } from '../../constants/mood';
@@ -7,6 +7,8 @@ import { dateToKey } from '../../utils/helpers';
 import SimpleMarkdownRenderer from '../common/SimpleMarkdownRenderer';
 import CalendarView from './CalendarView';
 import EditorView from './EditorView';
+import LoadingOverlay from '../Dashboard/LoadingOverlay';
+
 
 interface MoodJournalProps {
     onBack: () => void;
@@ -27,6 +29,8 @@ const MoodJournal: React.FC<MoodJournalProps> = ({ onBack }) => {
 
     const [aiSummary, setAiSummary] = useState('');
     const [isLoadingSummary, setIsLoadingSummary] = useState(true);
+    const [thinkingText, setThinkingText] = useState('');
+    const [isThinkingComplete, setIsThinkingComplete] = useState(false);
 
     useEffect(() => {
         try {
@@ -52,6 +56,9 @@ const MoodJournal: React.FC<MoodJournalProps> = ({ onBack }) => {
 
         const fetchOrLoadSummary = async () => {
             setIsLoadingSummary(true);
+            setThinkingText('');
+            setIsThinkingComplete(getAiProvider() === 'gemini');
+
             const dataSignature = JSON.stringify(sortedEntries);
 
             try {
@@ -86,7 +93,29 @@ ${context}
 格式示例: **总结:** [你的总结]|||**小建议:** [你的建议]`;
 
             try {
-                const fullText = await generateContent({ prompt });
+                 const provider = getAiProvider();
+                 let fullText = "";
+                 if(provider === 'zhipu') {
+                    const stream = generateContentStream(prompt);
+                    let thinkingDone = false;
+                    for await (const chunk of stream) {
+                        if (chunk.parsed) {
+                            if (chunk.parsed.type === 'thinking') {
+                                setThinkingText(prev => prev + chunk.parsed.content);
+                            } else {
+                                if (!thinkingDone) {
+                                    setIsThinkingComplete(true);
+                                    thinkingDone = true;
+                                }
+                                fullText += chunk.parsed.content;
+                            }
+                        }
+                    }
+                    setIsThinkingComplete(true);
+                 } else {
+                    fullText = await generateContent({ prompt });
+                 }
+                
                 setAiSummary(fullText);
                 localStorage.setItem(SUMMARY_CACHE_KEY, JSON.stringify({ summary: fullText, signature: dataSignature }));
             } catch (error) {
@@ -112,6 +141,7 @@ ${context}
         const key = dateToKey(selectedDate);
         const newEntry: MoodEntry = { date: key, mood: selectedMood, text: journalText };
         saveEntries({ ...entries, [key]: newEntry });
+        setView('calendar');
     }, [selectedDate, selectedMood, journalText, entries]);
 
     const handleClearEntry = useCallback(() => {
@@ -166,17 +196,13 @@ ${context}
                 </div>
 
                 {sortedEntries.length >= 3 && (
-                    <div className="bg-gradient-to-br from-amber-50 to-orange-100 p-6 rounded-2xl shadow-lg border border-white/50">
+                    <div className="relative bg-gradient-to-br from-amber-50 to-orange-100 p-6 rounded-2xl shadow-lg border border-white/50 min-h-[10rem]">
+                        {isLoadingSummary && <LoadingOverlay thinkingText={thinkingText} isThinkingComplete={isThinkingComplete} />}
                         <h3 className="flex items-center text-xl font-bold text-amber-900/80 mb-3">
                              <SparklesIcon className="h-6 w-6 mr-2 text-amber-600"/>
                              AI 智能总结
                         </h3>
-                        {isLoadingSummary ? (
-                            <div className="flex items-center text-amber-800/70">
-                                <SpinnerIcon className="h-5 w-5 mr-2"/>
-                                <span>正在为你生成专属分析报告...</span>
-                            </div>
-                        ) : (
+                        {!isLoadingSummary && aiSummary && (
                              <div className="space-y-2 text-amber-900/90 leading-relaxed animate-fadeIn">
                                 {summaryPart && <p><SimpleMarkdownRenderer text={summaryPart.trim()} highlightClassName="font-bold text-amber-800" /></p>}
                                 {suggestionPart && <p><SimpleMarkdownRenderer text={suggestionPart.trim()} highlightClassName="font-bold text-amber-800" /></p>}

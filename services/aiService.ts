@@ -1,3 +1,6 @@
+
+
+
 import { GoogleGenAI, Type as GeminiType } from "@google/genai";
 import { GEMINI_API_KEY_B64, ZHIPU_API_KEY_B64 } from '../apiKey';
 import type { ModelProvider } from '../types';
@@ -10,6 +13,7 @@ const getGemini = (): GoogleGenAI | null => {
     if (!geminiAi) {
         try {
             const geminiKey = atob(GEMINI_API_KEY_B64);
+            console.log('[AI Service] Initializing Gemini.');
             geminiAi = new GoogleGenAI({ apiKey: geminiKey });
         } catch (e) { console.error("Failed to initialize Gemini AI:", e); }
     }
@@ -17,7 +21,10 @@ const getGemini = (): GoogleGenAI | null => {
 }
 const getZhipuKey = (): string | null => {
     if (!zhipuApiKey) {
-         try { zhipuApiKey = atob(ZHIPU_API_KEY_B64); } catch (e) { console.error("Failed to decode Zhipu API key:", e); }
+         try { 
+            zhipuApiKey = atob(ZHIPU_API_KEY_B64);
+            console.log('[AI Service] Initializing Zhipu.');
+        } catch (e) { console.error("Failed to decode Zhipu API key:", e); }
     }
     return zhipuApiKey;
 }
@@ -44,7 +51,7 @@ export const getAiProvider = (): ModelProvider => {
             return provider;
         }
     } catch (e) { console.error("Failed to get AI provider from localStorage", e); }
-    return 'gemini'; // Default provider
+    return 'zhipu'; // Default provider
 };
 
 
@@ -53,114 +60,203 @@ export const getAiProvider = (): ModelProvider => {
 interface GenerateContentConfig {
     prompt: string;
     jsonSchema?: any; // Gemini's schema format
+    timeout?: number;
 }
 
 export const generateContent = async (config: GenerateContentConfig): Promise<string> => {
     const provider = getAiProvider();
+    const timeout = config.timeout ?? 20000; // Default to 20 seconds
+    console.log(`[AI Service] generateContent called. Provider: ${provider}, Timeout: ${timeout}ms`, { config });
     
     if (provider === 'zhipu') {
         const apiKey = getZhipuKey();
         if (!apiKey) throw new Error("Zhipu AI key is not available.");
 
-        const headers = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-        };
-        const body: any = {
-            model: 'glm-4.5-flash',
-            messages: [{ role: 'user', content: config.prompt }],
-            thinking: { type: 'enabled' },
-            temperature: 0.7
-        };
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-        if (config.jsonSchema) {
-            body.response_format = { type: 'json_object' };
+        try {
+            const headers = {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            };
+            const body: any = {
+                model: 'glm-4.5',
+                messages: [{ role: 'user', content: config.prompt }],
+                temperature: 0.7
+            };
+
+            if (config.jsonSchema) {
+                body.response_format = { type: 'json_object' };
+            }
+
+            const response = await fetch("https://open.bigmodel.cn/api/paas/v4/chat/completions", {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+                signal: controller.signal
+            });
+
+            if (!response.ok) {
+                const errorBody = await response.text();
+                console.error("[AI Service] Zhipu API Error Response Body:", errorBody);
+                throw new Error(`Zhipu API error: ${response.status} ${response.statusText}`);
+            }
+            const data = await response.json();
+            return data.choices[0].message.content;
+        } catch (error) {
+            console.error(`[AI Service] Zhipu generateContent Error:`, error);
+            if (error instanceof Error && error.name === 'AbortError') {
+                throw new Error('timeout');
+            }
+            throw error;
+        } finally {
+            clearTimeout(timeoutId);
         }
-        
-        const response = await fetch("https://open.bigmodel.cn/api/paas/v4/chat/completions", {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body)
-        });
 
-        if (!response.ok) {
-            const errorBody = await response.text();
-            console.error("Zhipu API Error:", errorBody);
-            throw new Error(`Zhipu API error: ${response.statusText}`);
-        }
-        const data = await response.json();
-        return data.choices[0].message.content;
-
-    } else { // Default to Gemini
+    } else { // Gemini
         const ai = getGemini();
         if (!ai) throw new Error("Gemini AI is not initialized.");
+
+        const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), timeout)
+        );
         
-        const geminiConfig: any = {};
+        const geminiConfig: any = {
+            temperature: 0.8,
+        };
         if (config.jsonSchema) {
             geminiConfig.responseMimeType = "application/json";
             geminiConfig.responseSchema = config.jsonSchema;
         }
 
-        const response = await ai.models.generateContent({
+        const requestPayload = {
             model: 'gemini-2.5-flash',
             contents: config.prompt,
             config: geminiConfig,
-        });
-        return response.text;
+        };
+
+        try {
+            const generationPromise = ai.models.generateContent(requestPayload);
+            const response = await Promise.race([generationPromise, timeoutPromise]);
+            return response.text;
+        } catch (error) {
+            console.error(`[AI Service] Gemini generateContent Error:`, error);
+            if (error instanceof Error && error.message === 'timeout') {
+                throw new Error('timeout');
+            }
+            throw error;
+        }
     }
 };
 
-export async function* generateContentStream(prompt: string): AsyncGenerator<string> {
+export type StreamChunk = {
+    type: 'thinking' | 'content';
+    content: string;
+};
+
+export type StreamOutput = {
+    parsed: StreamChunk | null;
+    raw: string;
+};
+
+export async function* generateContentStream(prompt: string, timeout?: number, jsonSchema?: any): AsyncGenerator<StreamOutput> {
     const provider = getAiProvider();
+    const effectiveTimeout = timeout ?? 20000;
+    console.log(`[AI Service] generateContentStream called. Provider: ${provider}, Timeout: ${effectiveTimeout}ms`, { prompt });
 
     if (provider === 'zhipu') {
         const apiKey = getZhipuKey();
         if (!apiKey) throw new Error("Zhipu AI key is not available.");
 
-        const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` };
-        const body = {
-            model: 'glm-4.5-flash',
-            messages: [{ role: 'user', content: prompt }],
-            thinking: { type: 'enabled' },
-            stream: true,
-        };
-        const response = await fetch("https://open.bigmodel.cn/api/paas/v4/chat/completions", {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body)
-        });
-
-        if (!response.ok || !response.body) {
-            throw new Error(`Zhipu API stream error: ${response.statusText}`);
-        }
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+            console.warn(`[AI Service] Zhipu stream request timed out after ${effectiveTimeout}ms.`);
+            controller.abort();
+        }, effectiveTimeout);
         
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
+        let firstTokenReceived = false;
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+        try {
+            const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` };
+            const body: any = {
+                model: 'glm-4.5-flash',
+                messages: [{ role: 'user', content: prompt }],
+                stream: true,
+                thinking: { type: 'enabled' },
+                temperature: 0.7,
+            };
+            if (jsonSchema) {
+                body.response_format = { type: 'json_object' };
+            }
+            const response = await fetch("https://open.bigmodel.cn/api/paas/v4/chat/completions", {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+                signal: controller.signal
+            });
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || ''; // Keep the last, potentially incomplete line
+            if (!response.ok || !response.body) {
+                const errorBody = await response.text();
+                console.error("[AI Service] Zhipu Stream API Error Response Body:", errorBody);
+                throw new Error(`Zhipu API stream error: ${response.statusText}`);
+            }
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
 
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const jsonStr = line.substring(6);
-                    if (jsonStr.trim() === '[DONE]') {
-                        return;
-                    }
-                    try {
-                        const data = JSON.parse(jsonStr);
-                        if (data.choices && data.choices[0].delta.content) {
-                            yield data.choices[0].delta.content;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const jsonStr = line.substring(6).trim();
+                        yield { parsed: null, raw: jsonStr };
+
+                        if (jsonStr === '[DONE]') {
+                            return;
                         }
-                    } catch (e) {
-                        // Ignore parsing errors for incomplete JSON chunks
+                        try {
+                            const data = JSON.parse(jsonStr);
+                            const choice = data.choices?.[0];
+                            let chunkToYield: StreamChunk | null = null;
+                            
+                            if (choice?.delta) {
+                                if (choice.delta.reasoning_content) {
+                                    chunkToYield = { type: 'thinking', content: choice.delta.reasoning_content };
+                                } else if (choice.delta.content) {
+                                    chunkToYield = { type: 'content', content: choice.delta.content };
+                                }
+                            }
+
+                            if (chunkToYield) {
+                                if (!firstTokenReceived) {
+                                    clearTimeout(timeoutId);
+                                    firstTokenReceived = true;
+                                }
+                                yield { parsed: chunkToYield, raw: '' };
+                            }
+
+                        } catch (e) {
+                             console.warn('[AI Service] Zhipu Stream JSON parsing error:', jsonStr);
+                        }
                     }
                 }
+            }
+        } catch(error) {
+            if (error instanceof Error && error.name === 'AbortError') {
+                throw new Error('timeout');
+            }
+            throw error;
+        } finally {
+            if (!firstTokenReceived) {
+                clearTimeout(timeoutId);
             }
         }
 
@@ -168,16 +264,23 @@ export async function* generateContentStream(prompt: string): AsyncGenerator<str
         const ai = getGemini();
         if (!ai) throw new Error("Gemini AI is not initialized.");
         
-        const responseStream = await ai.models.generateContentStream({
+        const requestPayload = {
             model: 'gemini-2.5-flash',
             contents: prompt
-        });
-
-        for await (const chunk of responseStream) {
-            const chunkText = chunk.text;
-            if (chunkText) {
-                yield chunkText;
+        };
+        
+        try {
+            const responseStream = await ai.models.generateContentStream(requestPayload);
+            for await (const chunk of responseStream) {
+                const chunkText = chunk.text;
+                if (chunkText) {
+                    const parsedChunk: StreamChunk = { type: 'content', content: chunkText };
+                    yield { parsed: parsedChunk, raw: chunkText };
+                }
             }
+        } catch(error) {
+            console.error('[AI Service] Gemini generateContentStream Error:', error);
+            throw error;
         }
     }
 }
