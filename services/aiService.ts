@@ -1,6 +1,3 @@
-
-
-
 import { GoogleGenAI, Type as GeminiType } from "@google/genai";
 import { GEMINI_API_KEY_B64, ZHIPU_API_KEY_B64 } from '../apiKey';
 import type { ModelProvider } from '../types';
@@ -183,7 +180,7 @@ export async function* generateContentStream(prompt: string, timeout?: number, j
                 model: 'glm-4.5-flash',
                 messages: [{ role: 'user', content: prompt }],
                 stream: true,
-                thinking: { type: 'enabled' },
+                meta: { "enable_think": true },
                 temperature: 0.7,
             };
             if (jsonSchema) {
@@ -264,9 +261,18 @@ export async function* generateContentStream(prompt: string, timeout?: number, j
         const ai = getGemini();
         if (!ai) throw new Error("Gemini AI is not initialized.");
         
+        const geminiConfig: any = {
+            temperature: 0.8,
+        };
+        if (jsonSchema) {
+            geminiConfig.responseMimeType = "application/json";
+            geminiConfig.responseSchema = jsonSchema;
+        }
+
         const requestPayload = {
             model: 'gemini-2.5-flash',
-            contents: prompt
+            contents: prompt,
+            config: geminiConfig,
         };
         
         try {

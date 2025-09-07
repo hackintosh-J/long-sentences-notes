@@ -48,8 +48,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     const [isQuestionLoading, setIsQuestionLoading] = useState(false);
     const [streamedQuestion, setStreamedQuestion] = useState("");
     const [showQuestionAnswer, setShowQuestionAnswer] = useState(false);
-    const [questionThinkingText, setQuestionThinkingText] = useState('');
-    const [isQuestionThinkingComplete, setIsQuestionThinkingComplete] = useState(false);
 
     // AI Sentence State
     const [sentenceCache, setSentenceCache] = useState<SentenceCache | null>(null);
@@ -83,16 +81,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         setIsBriefingThinkingComplete(getAiProvider() === 'gemini');
 
         const prompts = {
-            focus: `请随机列出2-3个针对中国考研西医综合或政治的、高度具体的核心复习概念。使用项目符号。要求极简(总共50字以内)。例如:\n- 心脏周期\n- 矛盾的同一性`,
-            clarification: `请随机主动选择一对中国考研(政治或西医综合)中极易混淆的概念，并用一句话解释其核心区别。要求极简(80字以内)。用Markdown **加粗** 关键概念。例如: **意识**与**物质**: 物质决定意识，意识是物质的反映。`,
-            word: `请随机提供一个与学术阅读(如考研英语)相关的高阶英语单词。格式如下:\n**单词**\nEN: [简短英文释义]\nZH: [简短中文释义]\nEx: [简短例句]。整体回答必须非常简短。`,
+            focus: `请随机列出2-3个针对中国考研西医综合或政治的、高度具体的核心复习概念。使用项目符号。要求极简(总共50字以内)。确保每次请求都返回不同的随机结果。例如:\n- 心脏周期\n- 矛盾的同一性`,
+            clarification: `请随机主动选择一对中国考研(政治或西医综合)中极易混淆的概念，并用一句话解释其核心区别。要求极简(80字以内)，并确保每次请求都返回不同的随机结果。用Markdown **加粗** 关键概念。例如: **意识**与**物质**: 物质决定意识，意识是物质的反映。`,
+            word: `请随机提供一个与学术阅读(如考研英语)相关的高阶英语单词。确保每次请求都返回不同的随机结果。格式如下:\n**单词**\nEN: [简短英文释义]\nZH: [简短中文释义]\nEx: [简短例句]。整体回答必须非常简短。`,
             sentence: `
 Please create a "Sentence of the Day" for a Chinese student preparing for the postgraduate entrance exam (考研英语). The sentence should be a complex long sentence from a real exam paper or of similar difficulty.
 Your response MUST be a single JSON object. Do not include any text outside of the JSON object.
 All "explanation" fields must be in CHINESE.`
         };
 
-        const combinedPrompt = `为一款中国考研学习App生成三段独立、简洁的内容。严格按照指定的分隔符开始每个部分，并严格遵守各部分的格式和字数限制。
+        const combinedPrompt = `为一款中国考研学习App生成三段独立、简洁、且每次请求都确保随机性的内容。严格按照指定的分隔符开始每个部分，并严格遵守各部分的格式和字数限制。
 
 |||FOCUS|||
 ${prompts.focus}
@@ -227,9 +225,7 @@ ${prompts.word}`;
         setShowQuestionAnswer(false);
         setStreamedQuestion("");
         setQuestionCache(null);
-        setQuestionThinkingText('');
-        setIsQuestionThinkingComplete(getAiProvider() === 'gemini');
-
+        
         const subject = Math.random() > 0.5 ? '西医综合306' : '考研政治';
         const prompt = `As an expert in China's graduate school entrance exams for ${subject}, create one challenging multiple-choice question about a core concept. Provide four options (A, B, C, D). IMPORTANT: Do NOT bold, star, or otherwise emphasize the correct answer within the question or options. Use markdown for general emphasis if needed. Then, on a new line after a separator "=====", provide the correct answer and a detailed explanation for why the correct answer is right and the others are wrong. The entire response must be in Chinese.`;
         
@@ -237,23 +233,13 @@ ${prompts.word}`;
             const responseStream = generateContentStream(prompt, 20000);
             
             let fullText = "";
-            let thinkingDone = false;
             for await (const chunk of responseStream) {
-                if (chunk.parsed) {
-                    if (chunk.parsed.type === 'thinking') {
-                         setQuestionThinkingText(prev => prev + chunk.parsed.content);
-                    } else if (chunk.parsed.type === 'content' && chunk.parsed.content) {
-                        if (!thinkingDone) {
-                            setIsQuestionThinkingComplete(true);
-                            thinkingDone = true;
-                        }
-                        fullText += chunk.parsed.content;
-                        setStreamedQuestion(fullText);
-                    }
+                if (chunk.parsed && chunk.parsed.type === 'content' && chunk.parsed.content) {
+                    fullText += chunk.parsed.content;
+                    setStreamedQuestion(fullText);
                 }
             }
-            setIsQuestionThinkingComplete(true);
-
+            
             const newCache: QuestionCache = { content: fullText, timestamp: Date.now() };
             setQuestionCache(newCache);
             localStorage.setItem('aiDashboardQuestion', JSON.stringify(newCache));
@@ -387,10 +373,13 @@ ${prompts.word}`;
             <div className="mt-4 space-y-4">
                 <div className="whitespace-pre-wrap text-slate-700 leading-relaxed">
                    <MarkdownRenderer text={questionPart?.trim() || ''} />
+                   {isQuestionLoading && <span className="inline-block animate-blink">▋</span>}
                 </div>
-                 <button onClick={() => setShowQuestionAnswer(!showQuestionAnswer)} className="text-sm font-semibold text-indigo-600 bg-indigo-100 px-3 py-1 rounded-full hover:bg-indigo-200">
-                    {showQuestionAnswer ? '隐藏答案' : '显示答案'}
-                </button>
+                {!isQuestionLoading && contentToRender.includes("=====") && (
+                    <button onClick={() => setShowQuestionAnswer(!showQuestionAnswer)} className="text-sm font-semibold text-indigo-600 bg-indigo-100 px-3 py-1 rounded-full hover:bg-indigo-200">
+                        {showQuestionAnswer ? '隐藏答案' : '显示答案'}
+                    </button>
+                )}
                 {showQuestionAnswer && (
                     <div className="p-4 bg-slate-50 rounded-lg border animate-fadeIn">
                         <div className="whitespace-pre-wrap text-slate-800 leading-relaxed">
@@ -496,7 +485,7 @@ ${prompts.word}`;
             
             {/* AI Daily Question Section */}
             <div className="relative bg-white p-6 rounded-2xl shadow-lg border border-slate-200/80">
-                {isQuestionLoading && <LoadingOverlay thinkingText={questionThinkingText} isThinkingComplete={isQuestionThinkingComplete} showFunFacts={false} />}
+                {isQuestionLoading && !streamedQuestion && <LoadingOverlay showFunFacts={false} isThinkingComplete={true} />}
                 <h3 className="flex items-center text-xl font-bold text-slate-700 mb-4">
                     <BookIcon className="h-6 w-6 mr-2 text-indigo-500"/>
                     知识点自测

@@ -44,81 +44,64 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
         setError(null);
         setActiveTooltip(null);
         setThinkingText('');
-        setIsThinkingComplete(getAiProvider() === 'gemini');
+        setIsThinkingComplete(false); // Ensure thinking phase is shown
 
 
-        const prompt = `You are an expert English teacher specializing in evaluating essays for China's Postgraduate Entrance Examination (English I). Please analyze the following essay.
+        const prompt = `You are an expert English teacher for China's Postgraduate Entrance Examination. Analyze the following essay.
 
-        Essay:
-        ---
-        ${inputText}
-        ---
-        
-        Your task is to:
-        1. Provide an overall score out of 20.
-        2. Give a brief justification for the score, focusing on strengths and weaknesses in relation to the exam's criteria (content, structure, language). This justification must be in Chinese.
-        3. Identify specific words, phrases, or sentences and categorize them. Provide a concise explanation for each, also in Chinese.
-        
-        Use the following categories for annotations:
-        - GOOD: Excellent use of vocabulary, grammar, or sentence structure.
-        - ERROR: A clear grammatical, spelling, or punctuation mistake.
-        - SUGGESTION: The language is okay, but could be improved for better style, clarity, or impact.
-        
-        Return your analysis ONLY in the specified JSON format. The entire response, including all explanations and justifications, must be in Chinese.`;
-        
-        const responseSchema = {
-            type: GeminiType.OBJECT,
-            properties: {
-                overallScore: { type: GeminiType.NUMBER, description: "A score from 0 to 20." },
-                scoreBasis: { type: GeminiType.STRING, description: "Justification for the score, in Chinese." },
-                annotations: {
-                    type: GeminiType.ARRAY,
-                    description: "List of annotations on the text.",
-                    items: {
-                        type: GeminiType.OBJECT,
-                        properties: {
-                            text: { type: GeminiType.STRING, description: "The exact text from the essay to be highlighted." },
-                            type: { type: GeminiType.STRING, description: "Category: GOOD, ERROR, or SUGGESTION." },
-                            explanation: { type: GeminiType.STRING, description: "Explanation or correction for the highlighted text, in Chinese." }
-                        },
-                        required: ["text", "type", "explanation"]
-                    }
-                }
-            },
-            required: ["overallScore", "scoreBasis", "annotations"]
-        };
-        
-        const provider = getAiProvider();
+Essay:
+---
+${inputText}
+---
 
+Your response MUST be a single, raw, valid JSON object and nothing else.
+
+Your first and most important task is to provide a score and justification.
+- **overallScore**: A score out of 20.
+- **scoreBasis**: A justification for the score, in Chinese.
+
+Your second task is to provide detailed annotations for specific parts of the essay.
+- **annotations**: A list of comments on the text.
+- Each annotation must have:
+    - \`text\`: The exact text from the essay.
+    - \`type\`: 'GOOD', 'ERROR', or 'SUGGESTION'.
+    - \`explanation\`: Your feedback, in Chinese.
+
+**CRITICAL REQUIREMENT**: You must use a variety of annotation types. Find something to praise ('GOOD'), identify clear mistakes ('ERROR'), and provide stylistic improvements ('SUGGESTION'). A response that only uses one type is a failure.
+
+**Final JSON Structure Example (Follow this structure exactly):**
+{
+  "overallScore": 15,
+  "scoreBasis": "文章结构清晰，观点明确，但在词汇多样性和高级句式运用上还有提升空间。部分语法细节需要注意。",
+  "annotations": [
+    { "text": "a huge progress", "type": "ERROR", "explanation": "语法错误。'progress' 是不可数名词，不能用 'a' 修饰，应改为 'huge progress' 或 'great progress'。" },
+    { "text": "In conclusion", "type": "GOOD", "explanation": "用词得当。这是一个很好的总结性短语，使文章结构清晰。" },
+    { "text": "I think this is a good idea", "type": "SUGGESTION", "explanation": "表达可以更正式。建议改为 'I believe this is a sound proposal' 或 'From my perspective, this is an effective approach'，使语气更学术化。" }
+  ]
+}`;
+        
         try {
-            if (provider === 'zhipu') {
-                const stream = generateContentStream(prompt, 60000, responseSchema); // 60s timeout for essay
-                let fullJsonString = "";
-                let thinkingDone = false;
-                for await (const chunk of stream) {
-                    if (chunk.parsed) {
-                        if (chunk.parsed.type === 'thinking') {
-                            setThinkingText(prev => prev + chunk.parsed.content);
-                        } else {
-                            if (!thinkingDone) {
-                                setIsThinkingComplete(true);
-                                thinkingDone = true;
-                            }
-                            fullJsonString += chunk.parsed.content;
+            let fullJsonString = "";
+    
+            const stream = generateContentStream(prompt, 60000);
+            let thinkingPhaseDone = false;
+    
+            for await (const chunk of stream) {
+                if (chunk.parsed) {
+                    if (chunk.parsed.type === 'thinking') {
+                        setThinkingText(prev => prev + chunk.parsed.content);
+                    } else { // content chunk
+                        if (!thinkingPhaseDone) {
+                            setIsThinkingComplete(true);
+                            thinkingPhaseDone = true;
                         }
+                        fullJsonString += chunk.parsed.content;
                     }
                 }
-                setIsThinkingComplete(true);
-                const data: CorrectionResponse = JSON.parse(fullJsonString.trim());
-                setResult(data);
-            } else {
-                 const jsonStr = await generateContent({
-                    prompt: prompt,
-                    jsonSchema: responseSchema
-                });
-                const data: CorrectionResponse = JSON.parse(jsonStr.trim());
-                setResult(data);
             }
+
+            const data: CorrectionResponse = JSON.parse(fullJsonString.trim());
+            setResult(data);
 
         } catch (e) {
             console.error("Error generating correction:", e);
@@ -210,8 +193,7 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
                 </button>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200/80 relative">
-                {isLoading && <div className="absolute inset-0 z-20"><LoadingOverlay thinkingText={thinkingText} isThinkingComplete={isThinkingComplete} /></div>}
+            <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200/80">
                 <h2 className="text-3xl font-bold text-sky-800 mb-2">英语作文智能批改</h2>
                 <p className="text-slate-500 mb-6">粘贴你的作文，AI将根据考研英语（一）标准进行评分和批注。</p>
                 
@@ -233,10 +215,10 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
 
             {error && <div className="p-4 bg-red-100 text-red-800 rounded-lg">{error}</div>}
 
-            {result && (
+            {(isLoading || result) && (
                 <div 
                     ref={resultContainerRef} 
-                    className="relative bg-white px-6 pt-12 pb-6 rounded-2xl shadow-lg border border-slate-200/80 animate-fadeIn space-y-6"
+                    className="relative bg-white px-6 pt-6 pb-6 rounded-2xl shadow-lg border border-slate-200/80 animate-fadeIn space-y-6 min-h-[20rem]"
                     onClick={(e) => {
                         // Close tooltip if clicking the background of the card
                         if (e.target === e.currentTarget) {
@@ -244,26 +226,39 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
                         }
                     }}
                 >
-                    <Tooltip annotation={activeTooltip?.annotation ?? null} position={activeTooltip?.position ?? null} />
-                    <h3 className="text-2xl font-bold text-slate-800">批改报告</h3>
+                    {isLoading && (
+                        <LoadingOverlay 
+                            thinkingText={thinkingText} 
+                            isThinkingComplete={isThinkingComplete} 
+                            showFunFacts={true} 
+                        />
+                    )}
                     
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-8 bg-slate-50 p-6 rounded-xl border border-slate-200">
-                        <div className="text-center shrink-0">
-                            <p className="text-5xl font-extrabold text-sky-600">{result.overallScore}<span className="text-2xl font-medium text-slate-500">/20</span></p>
-                            <p className="text-sm font-semibold text-slate-600 mt-1">综合得分</p>
-                        </div>
-                        <div>
-                            <h4 className="font-bold text-slate-700">评分依据：</h4>
-                            <p className="text-slate-600">{result.scoreBasis}</p>
-                        </div>
-                    </div>
+                    {/* Final result, shown only when not loading */}
+                    {!isLoading && result && (
+                        <>
+                            <Tooltip annotation={activeTooltip?.annotation ?? null} position={activeTooltip?.position ?? null} />
+                            <h3 className="text-2xl font-bold text-slate-800">批改报告</h3>
+                            
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-8 bg-slate-50 p-6 rounded-xl border border-slate-200">
+                                <div className="text-center shrink-0">
+                                    <p className="text-5xl font-extrabold text-sky-600">{result.overallScore}<span className="text-2xl font-medium text-slate-500">/20</span></p>
+                                    <p className="text-sm font-semibold text-slate-600 mt-1">综合得分</p>
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-slate-700">评分依据：</h4>
+                                    <p className="text-slate-600">{result.scoreBasis}</p>
+                                </div>
+                            </div>
 
-                    <div>
-                        <h4 className="text-xl font-bold text-slate-700 mb-3">原文及批注</h4>
-                         <div className="p-4 border rounded-lg bg-slate-50/50 min-h-[10rem]">
-                            {renderAnnotatedText()}
-                        </div>
-                    </div>
+                            <div>
+                                <h4 className="text-xl font-bold text-slate-700 mb-3">原文及批注</h4>
+                                 <div className="p-4 border rounded-lg bg-slate-50/50 min-h-[10rem]">
+                                    {renderAnnotatedText()}
+                                </div>
+                            </div>
+                        </>
+                    )}
                 </div>
             )}
         </div>
