@@ -444,7 +444,7 @@ ${prompts.word}`;
 
             {/* AI Briefing Section */}
             <div ref={briefingRef} className="relative bg-white p-6 rounded-2xl shadow-lg border border-slate-200/80">
-                {(isBriefingLoading || isSentenceLoading) && <LoadingOverlay thinkingText={briefingThinkingText} isThinkingComplete={isBriefingThinkingComplete}/>}
+                {(isBriefingLoading || isSentenceLoading) && <LoadingOverlay thinkingText={isBriefingThinkingComplete ? undefined : briefingThinkingText} showFunFacts={true} />}
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-2xl font-bold text-slate-700">AI 速递</h2>
                     <button onClick={() => fetchBriefing(true)} disabled={isBriefingLoading || isSentenceLoading} className="flex items-center gap-2 bg-slate-200 text-slate-700 font-bold py-1.5 px-4 rounded-full hover:bg-slate-300 transition text-sm disabled:opacity-50">
@@ -485,7 +485,7 @@ ${prompts.word}`;
             
             {/* AI Daily Question Section */}
             <div className="relative bg-white p-6 rounded-2xl shadow-lg border border-slate-200/80">
-                {isQuestionLoading && !streamedQuestion && <LoadingOverlay showFunFacts={false} isThinkingComplete={true} />}
+                {isQuestionLoading && !streamedQuestion && <LoadingOverlay showFunFacts={false} />}
                 <h3 className="flex items-center text-xl font-bold text-slate-700 mb-4">
                     <BookIcon className="h-6 w-6 mr-2 text-indigo-500"/>
                     知识点自测

@@ -25,8 +25,8 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [result, setResult] = useState<CorrectionResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [agentStatus, setAgentStatus] = useState<'idle' | 'generating' | 'formatting'>('idle');
     const [thinkingText, setThinkingText] = useState('');
-    const [isThinkingComplete, setIsThinkingComplete] = useState(false);
     
     // State to manage the currently visible tooltip
     const [activeTooltip, setActiveTooltip] = useState<{ 
@@ -44,18 +44,16 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
         setError(null);
         setActiveTooltip(null);
         setThinkingText('');
-        setIsThinkingComplete(false); // Ensure thinking phase is shown
+        setAgentStatus('generating');
 
-
-        const prompt = `You are an expert English teacher for China's Postgraduate Entrance Examination. Analyze the following essay.
+        const generationPrompt = `You are an expert English teacher for China's Postgraduate Entrance Examination. Analyze the following essay.
 
 Essay:
 ---
 ${inputText}
 ---
 
-Your response MUST be a single, raw, valid JSON object and nothing else.
-
+Your response must be structured like a JSON object containing a score, justification, and detailed annotations.
 Your first and most important task is to provide a score and justification.
 - **overallScore**: A score out of 20.
 - **scoreBasis**: A justification for the score, in Chinese.
@@ -68,51 +66,89 @@ Your second task is to provide detailed annotations for specific parts of the es
     - \`explanation\`: Your feedback, in Chinese.
 
 **CRITICAL REQUIREMENT**: You must use a variety of annotation types. Find something to praise ('GOOD'), identify clear mistakes ('ERROR'), and provide stylistic improvements ('SUGGESTION'). A response that only uses one type is a failure.
-
-**Final JSON Structure Example (Follow this structure exactly):**
-{
-  "overallScore": 15,
-  "scoreBasis": "文章结构清晰，观点明确，但在词汇多样性和高级句式运用上还有提升空间。部分语法细节需要注意。",
-  "annotations": [
-    { "text": "a huge progress", "type": "ERROR", "explanation": "语法错误。'progress' 是不可数名词，不能用 'a' 修饰，应改为 'huge progress' 或 'great progress'。" },
-    { "text": "In conclusion", "type": "GOOD", "explanation": "用词得当。这是一个很好的总结性短语，使文章结构清晰。" },
-    { "text": "I think this is a good idea", "type": "SUGGESTION", "explanation": "表达可以更正式。建议改为 'I believe this is a sound proposal' 或 'From my perspective, this is an effective approach'，使语气更学术化。" }
-  ]
-}`;
+Your final output should be only the structured content, ready for JSON parsing.`;
         
         try {
-            let fullJsonString = "";
-    
-            const stream = generateContentStream(prompt, 60000);
-            let thinkingPhaseDone = false;
-    
+            // == AGENT STEP 1: GENERATE RAW REPORT WITH THINKING CHAIN ==
+            let rawReportContent = "";
+            const stream = generateContentStream(generationPrompt, 60000);
             for await (const chunk of stream) {
                 if (chunk.parsed) {
                     if (chunk.parsed.type === 'thinking') {
                         setThinkingText(prev => prev + chunk.parsed.content);
-                    } else { // content chunk
-                        if (!thinkingPhaseDone) {
-                            setIsThinkingComplete(true);
-                            thinkingPhaseDone = true;
-                        }
-                        fullJsonString += chunk.parsed.content;
+                    } else {
+                        rawReportContent += chunk.parsed.content;
                     }
                 }
             }
 
-            const data: CorrectionResponse = JSON.parse(fullJsonString.trim());
+            if (!rawReportContent.trim()) {
+                throw new Error("The AI returned an empty response for the report draft.");
+            }
+
+            // == AGENT STEP 2: CLEAN AND FORMAT THE DRAFT INTO PURE JSON ==
+            setAgentStatus('formatting');
+
+            const formattingPrompt = `You are a data formatting expert. Your sole task is to take the following text, which contains a JSON object possibly surrounded by markdown fences or other text, and extract ONLY the raw, valid JSON object.
+
+- Remove any markdown fences (like \`\`\`json or \`\`\`).
+- Remove any explanatory text before or after the JSON object.
+- The output MUST be a single, clean, valid JSON object and nothing else.
+
+Input Text:
+---
+${rawReportContent}
+---
+
+Cleaned JSON Output:`;
+
+            const responseSchema = {
+                type: GeminiType.OBJECT,
+                properties: {
+                    overallScore: { type: GeminiType.NUMBER },
+                    scoreBasis: { type: GeminiType.STRING },
+                    annotations: {
+                        type: GeminiType.ARRAY,
+                        items: {
+                            type: GeminiType.OBJECT,
+                            properties: {
+                                text: { type: GeminiType.STRING },
+                                type: { type: GeminiType.STRING, enum: ['GOOD', 'ERROR', 'SUGGESTION'] },
+                                explanation: { type: GeminiType.STRING },
+                            },
+                            required: ['text', 'type', 'explanation']
+                        }
+                    }
+                },
+                required: ['overallScore', 'scoreBasis', 'annotations']
+            };
+
+            const cleanedJsonString = await generateContent({
+                prompt: formattingPrompt,
+                jsonSchema: responseSchema, // This helps Gemini and is used for Zhipu's response_format
+                timeout: 15000 // Shorter timeout for a simple formatting task
+            });
+            
+            const data: CorrectionResponse = JSON.parse(cleanedJsonString.trim());
             setResult(data);
 
         } catch (e) {
             console.error("Error generating correction:", e);
-            setError("抱歉，AI批改时遇到问题。请稍后再试或检查你的文本内容。");
+            if (e instanceof SyntaxError) {
+                setError(`AI返回的格式有误，无法解析。这通常是暂时的网络或模型问题。`);
+            } else if (e instanceof Error && e.message.includes('empty response')) {
+                 setError("AI未能生成报告初稿，可能是内容触发了安全规则，请修改后重试。");
+            }
+            else {
+                setError("抱歉，AI批改时遇到问题。请稍后再试或检查你的文本内容。");
+            }
         } finally {
             setIsLoading(false);
+            setAgentStatus('idle');
         }
     };
 
     const handleAnnotationClick = (annotation: AnnotationWithIndex, event: React.MouseEvent<HTMLSpanElement>) => {
-        // If the clicked annotation is already active, hide the tooltip
         if (activeTooltip && activeTooltip.annotation.key === annotation.key) {
             setActiveTooltip(null);
             return;
@@ -123,7 +159,7 @@ Your second task is to provide detailed annotations for specific parts of the es
         const containerRect = resultContainerRef.current.getBoundingClientRect();
 
         const position = {
-            top: spanRect.top - containerRect.top - 10, // 10px offset above
+            top: spanRect.top - containerRect.top - 10,
             left: spanRect.left - containerRect.left + spanRect.width / 2,
         };
         
@@ -136,7 +172,6 @@ Your second task is to provide detailed annotations for specific parts of the es
         const { annotations } = result;
         const text = inputText;
 
-        // Use a robust method to handle overlapping annotations and create unique keys
         const sortedAnnotations: AnnotationWithIndex[] = annotations
             .map(anno => {
                 const indices: number[] = [];
@@ -155,7 +190,6 @@ Your second task is to provide detailed annotations for specific parts of the es
         const parts: (string | JSX.Element)[] = [];
         let lastIndex = 0;
         
-        // Filter out overlapping annotations, preferring the one that starts first.
         const uniqueAnnotations = sortedAnnotations.filter((anno, index, self) => 
            index === 0 || anno.index >= (self[index - 1].index + self[index - 1].text.length)
         );
@@ -180,6 +214,16 @@ Your second task is to provide detailed annotations for specific parts of the es
 
         return <p className="text-lg leading-relaxed whitespace-pre-wrap">{parts}</p>;
     };
+
+    const getLoadingStatusText = (): string | undefined => {
+        if (agentStatus === 'formatting') return 'AI 正在整理报告格式...';
+        if (agentStatus === 'generating' && !thinkingText && getAiProvider() === 'gemini') {
+            return 'AI 正在撰写报告初稿... (Gemini)';
+        }
+        // For Zhipu, the "thinkingText" will appear, so no status text is needed initially.
+        return undefined;
+    };
+    
 
     return (
         <div className="animate-fadeIn space-y-8">
@@ -220,21 +264,19 @@ Your second task is to provide detailed annotations for specific parts of the es
                     ref={resultContainerRef} 
                     className="relative bg-white px-6 pt-6 pb-6 rounded-2xl shadow-lg border border-slate-200/80 animate-fadeIn space-y-6 min-h-[20rem]"
                     onClick={(e) => {
-                        // Close tooltip if clicking the background of the card
                         if (e.target === e.currentTarget) {
                            setActiveTooltip(null);
                         }
                     }}
                 >
                     {isLoading && (
-                        <LoadingOverlay 
-                            thinkingText={thinkingText} 
-                            isThinkingComplete={isThinkingComplete} 
-                            showFunFacts={true} 
+                       <LoadingOverlay
+                            thinkingText={agentStatus === 'generating' && thinkingText ? thinkingText : undefined}
+                            statusText={getLoadingStatusText()}
+                            showFunFacts={false}
                         />
                     )}
                     
-                    {/* Final result, shown only when not loading */}
                     {!isLoading && result && (
                         <>
                             <Tooltip annotation={activeTooltip?.annotation ?? null} position={activeTooltip?.position ?? null} />

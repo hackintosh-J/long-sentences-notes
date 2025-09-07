@@ -16,16 +16,15 @@ const renderFunFactWithHighlight = (text: string) => {
 };
 
 interface LoadingOverlayProps {
-    thinkingText?: string;
-    isThinkingComplete: boolean;
-    showFunFacts?: boolean; // New prop
+    thinkingText?: string;   // Shows the special "thinking" UI with a code block
+    statusText?: string;     // Shows a generic status message with a spinner
+    showFunFacts?: boolean;  // Fallback to fun facts if no other text is provided
 }
 
-const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ thinkingText, isThinkingComplete, showFunFacts = true }) => {
+const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ thinkingText, statusText, showFunFacts = true }) => {
     const [currentFunFact, setCurrentFunFact] = useState('');
     
-    // Determine if fun facts should be displayed
-    const shouldDisplayFunFacts = (!thinkingText || isThinkingComplete) && showFunFacts;
+    const shouldDisplayFunFacts = !thinkingText && !statusText && showFunFacts;
 
     useEffect(() => {
         let intervalId: number | null = null;
@@ -43,9 +42,14 @@ const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ thinkingText, isThinkin
 
     return (
         <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-10 rounded-2xl p-4 animate-fadeIn">
-            {thinkingText && !isThinkingComplete ? (
+            {thinkingText ? (
                 <div className="w-full max-w-sm px-4">
                      <ThinkingIndicator text={thinkingText} />
+                </div>
+            ) : statusText ? (
+                 <div className="text-center">
+                    <SpinnerIcon className="h-8 w-8 text-slate-500 mx-auto" />
+                    <p className="mt-4 font-semibold text-slate-600">{statusText}</p>
                 </div>
             ) : shouldDisplayFunFacts ? (
                 <>
@@ -56,7 +60,6 @@ const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ thinkingText, isThinkin
                     </div>
                 </>
             ) : (
-                // Minimal spinner when fun facts are disabled but still in a loading state
                 <SpinnerIcon className="h-8 w-8 text-slate-500" />
             )}
         </div>

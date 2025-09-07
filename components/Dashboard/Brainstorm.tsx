@@ -189,7 +189,7 @@ const Brainstorm: React.FC = () => {
                 <div className="relative mt-4 p-4 bg-slate-50 rounded-lg border border-slate-200 min-h-[10rem]">
                     {/* Show overlay only while thinking. Once content starts streaming, isThinkingComplete becomes true, and this disappears.*/}
                     {isLoading && !isThinkingComplete && (
-                        <LoadingOverlay thinkingText={thinkingText} isThinkingComplete={isThinkingComplete} showFunFacts={false} />
+                        <LoadingOverlay thinkingText={thinkingText} showFunFacts={false} />
                     )}
                     
                     {/* Render the report as it streams in */}

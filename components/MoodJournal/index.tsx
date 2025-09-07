@@ -197,7 +197,8 @@ ${context}
 
                 {sortedEntries.length >= 3 && (
                     <div className="relative bg-gradient-to-br from-amber-50 to-orange-100 p-6 rounded-2xl shadow-lg border border-white/50 min-h-[10rem]">
-                        {isLoadingSummary && <LoadingOverlay thinkingText={thinkingText} isThinkingComplete={isThinkingComplete} />}
+                        {/* FIX: The 'isThinkingComplete' prop is not valid for LoadingOverlay. Logic is adjusted to conditionally pass 'thinkingText' instead. */}
+                        {isLoadingSummary && <LoadingOverlay thinkingText={isThinkingComplete ? undefined : thinkingText} />}
                         <h3 className="flex items-center text-xl font-bold text-amber-900/80 mb-3">
                              <SparklesIcon className="h-6 w-6 mr-2 text-amber-600"/>
                              AI 智能总结
