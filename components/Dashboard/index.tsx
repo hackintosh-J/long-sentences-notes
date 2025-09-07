@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Type as GeminiType } from "@google/genai";
-import { DAILY_NOTES, FUN_FACTS } from '../../constants';
+import { DAILY_NOTES } from '../../constants';
 import { FALLBACK_BRIEFING_CONTENTS, FALLBACK_SENTENCE_DATA } from '../../constants/fallbackContent';
 import { generateContent, generateContentStream, getAiProvider } from '../../services/aiService';
 import { 
@@ -23,203 +23,112 @@ interface DashboardProps {
 }
 
 // --- Type Definitions for AI Content ---
-type BriefingContent = {
-    focus: string;
-    clarification: string;
-    word: string;
+interface BriefingSectionState<T> {
+    content: T | null;
+    isLoading: boolean;
+    thinkingText: string;
+    isThinkingComplete: boolean;
 };
-type BriefingCache = { content: BriefingContent, dailyNote: string, timestamp: number };
 type QuestionCache = { content: string, timestamp: number };
-type SentenceCache = { content: SentenceAnalysisData, timestamp: number };
 
 // --- Main Dashboard Component ---
 const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
-    const briefingRef = useRef<HTMLDivElement>(null);
-    
     // AI Briefing State
-    const [briefingCache, setBriefingCache] = useState<BriefingCache | null>(null);
-    const [isBriefingLoading, setIsBriefingLoading] = useState(false);
-    const [briefingThinkingText, setBriefingThinkingText] = useState('');
-    const [isBriefingThinkingComplete, setIsBriefingThinkingComplete] = useState(false);
+    const [focusState, setFocusState] = useState<BriefingSectionState<string>>({ content: null, isLoading: true, thinkingText: '', isThinkingComplete: false });
+    const [clarificationState, setClarificationState] = useState<BriefingSectionState<string>>({ content: null, isLoading: true, thinkingText: '', isThinkingComplete: false });
+    const [wordState, setWordState] = useState<BriefingSectionState<string>>({ content: null, isLoading: true, thinkingText: '', isThinkingComplete: false });
+    const [sentenceState, setSentenceState] = useState<BriefingSectionState<SentenceAnalysisData>>({ content: null, isLoading: true, thinkingText: '', isThinkingComplete: false });
+    const [dailyNoteState, setDailyNoteState] = useState<BriefingSectionState<string>>({ content: null, isLoading: true, thinkingText: '', isThinkingComplete: false });
 
-    
     // AI Question State
     const [questionCache, setQuestionCache] = useState<QuestionCache | null>(null);
     const [isQuestionLoading, setIsQuestionLoading] = useState(false);
     const [streamedQuestion, setStreamedQuestion] = useState("");
     const [showQuestionAnswer, setShowQuestionAnswer] = useState(false);
-
-    // AI Sentence State
-    const [sentenceCache, setSentenceCache] = useState<SentenceCache | null>(null);
-    const [isSentenceLoading, setIsSentenceLoading] = useState(false);
-    
-    // --- Initialization ---
-    useEffect(() => {
-        try {
-            const cachedBriefing = localStorage.getItem('aiDashboardBriefing');
-            if (cachedBriefing) setBriefingCache(JSON.parse(cachedBriefing));
-
-            const cachedQuestion = localStorage.getItem('aiDashboardQuestion');
-            if (cachedQuestion) setQuestionCache(JSON.parse(cachedQuestion));
-
-            const cachedSentence = localStorage.getItem('aiDashboardSentence');
-            if (cachedSentence) {
-                 setSentenceCache(JSON.parse(cachedSentence));
-            } else {
-                fetchBriefing(true); // Fetch all if sentence is missing
-            }
-        } catch (error) { console.error("Failed to read from localStorage", error); }
-    }, []);
     
     // --- AI Fetching and Caching Logic ---
-    const fetchBriefing = useCallback(async (forceRefresh = false) => {
-        if (!forceRefresh) return;
+    const fetchBriefing = useCallback(async () => {
+        // Reset all states and start loading
+        const initialLoadingState = { isLoading: true, thinkingText: '', isThinkingComplete: getAiProvider() === 'gemini' };
+        setFocusState({ content: null, ...initialLoadingState });
+        setClarificationState({ content: null, ...initialLoadingState });
+        setWordState({ content: null, ...initialLoadingState });
+        setSentenceState({ content: null, ...initialLoadingState });
+        setDailyNoteState({ content: null, ...initialLoadingState });
         
-        setIsBriefingLoading(true);
-        setIsSentenceLoading(true);
-        setBriefingThinkingText('');
-        setIsBriefingThinkingComplete(getAiProvider() === 'gemini');
-
         const prompts = {
             focus: `请随机列出2-3个针对中国考研西医综合或政治的、高度具体的核心复习概念。使用项目符号。要求极简(总共50字以内)。确保每次请求都返回不同的随机结果。例如:\n- 心脏周期\n- 矛盾的同一性`,
             clarification: `请随机主动选择一对中国考研(政治或西医综合)中极易混淆的概念，并用一句话解释其核心区别。要求极简(80字以内)，并确保每次请求都返回不同的随机结果。用Markdown **加粗** 关键概念。例如: **意识**与**物质**: 物质决定意识，意识是物质的反映。`,
             word: `请随机提供一个与学术阅读(如考研英语)相关的高阶英语单词。确保每次请求都返回不同的随机结果。格式如下:\n**单词**\nEN: [简短英文释义]\nZH: [简短中文释义]\nEx: [简短例句]。整体回答必须非常简短。`,
-            sentence: `
-Please create a "Sentence of the Day" for a Chinese student preparing for the postgraduate entrance exam (考研英语). The sentence should be a complex long sentence from a real exam paper or of similar difficulty.
-Your response MUST be a single JSON object. Do not include any text outside of the JSON object.
-All "explanation" fields must be in CHINESE.`
+            sentence: `Please create a "Sentence of the Day" for a Chinese student preparing for the postgraduate entrance exam (考研英语). The sentence should be a complex long sentence from a real exam paper or of similar difficulty.\nYour response MUST be a single JSON object. Do not include any text outside of the JSON object.\nAll "explanation" fields must be in CHINESE.`,
+            dailyNote: `请为一位正在备考研究生的朋友写一条简短、独特且充满鼓励的寄语。确保每次请求都返回不同的随机结果。风格要温暖、有力量。不要超过50个字。不要包含 "考研人的每日寄语：" 这样的前缀。`
         };
-
-        const combinedPrompt = `为一款中国考研学习App生成三段独立、简洁、且每次请求都确保随机性的内容。严格按照指定的分隔符开始每个部分，并严格遵守各部分的格式和字数限制。
-
-|||FOCUS|||
-${prompts.focus}
-
-|||CLARIFICATION|||
-${prompts.clarification}
-
-|||WORD|||
-${prompts.word}`;
 
         const sentenceResponseSchema = {
-            type: GeminiType.OBJECT,
-            properties: {
-                sentence: { type: GeminiType.STRING },
-                translation: { type: GeminiType.STRING },
-                components: {
-                    type: GeminiType.ARRAY,
-                    items: {
-                        type: GeminiType.OBJECT,
-                        properties: {
-                            text: { type: GeminiType.STRING },
-                            type: { type: GeminiType.STRING, enum: ['subject', 'predicate', 'object', 'attributive', 'adverbial', 'complement', 'clause', 'phrase', 'connective'] },
-                            explanation: { type: GeminiType.STRING },
-                        },
-                        required: ['text', 'type', 'explanation']
-                    }
-                }
-            },
-            required: ['sentence', 'translation', 'components']
+            type: GeminiType.OBJECT, properties: { sentence: { type: GeminiType.STRING }, translation: { type: GeminiType.STRING }, components: { type: GeminiType.ARRAY, items: { type: GeminiType.OBJECT, properties: { text: { type: GeminiType.STRING }, type: { type: GeminiType.STRING, enum: ['subject', 'predicate', 'object', 'attributive', 'adverbial', 'complement', 'clause', 'phrase', 'connective'] }, explanation: { type: GeminiType.STRING }, }, required: ['text', 'type', 'explanation'] } } }, required: ['sentence', 'translation', 'components']
         };
 
-        const TIMEOUT_DURATION = 20000;
-        const provider = getAiProvider();
-        
-        const sentencePromise = generateContent({ prompt: prompts.sentence, jsonSchema: sentenceResponseSchema, timeout: TIMEOUT_DURATION });
-
-        const briefingPromise = (async () => {
-            if (provider === 'zhipu') {
-                let fullText = "";
-                const stream = generateContentStream(combinedPrompt, TIMEOUT_DURATION);
+        const fetchSection = async <T,>(config: {
+            prompt: string, 
+            setState: React.Dispatch<React.SetStateAction<BriefingSectionState<T>>>,
+            isJson?: boolean,
+            jsonSchema?: any,
+            fallbackContent: T
+        }) => {
+            const { prompt, setState, isJson = false, jsonSchema, fallbackContent } = config;
+            let fullText = "";
+            try {
+                const stream = generateContentStream(prompt, 20000, isJson ? jsonSchema : undefined);
                 let thinkingDone = false;
                 for await (const chunk of stream) {
                     if (chunk.parsed) {
                         if (chunk.parsed.type === 'thinking') {
-                            setBriefingThinkingText(prev => prev + chunk.parsed.content);
+                            setState(prev => ({ ...prev, thinkingText: prev.thinkingText + chunk.parsed.content }));
                         } else {
-                             if (!thinkingDone) {
-                                setIsBriefingThinkingComplete(true);
+                            if (!thinkingDone && !isJson) {
+                                setState(prev => ({ ...prev, isThinkingComplete: true }));
                                 thinkingDone = true;
                             }
                             fullText += chunk.parsed.content;
+                            if (!isJson) {
+                               setState(prev => ({ ...prev, content: fullText as T, isLoading: true }));
+                            }
                         }
                     }
                 }
-                setIsBriefingThinkingComplete(true);
-                return fullText;
-            } else {
-                return generateContent({ prompt: combinedPrompt, timeout: TIMEOUT_DURATION });
-            }
-        })();
-
-
-        try {
-            const [briefingResult, sentenceResult] = await Promise.allSettled([briefingPromise, sentencePromise]);
-
-            // Handle Briefing Result
-            if (briefingResult.status === 'fulfilled' && briefingResult.value) {
-                const briefingResponseText = briefingResult.value;
-                const fullText = briefingResponseText;
-                const focusMatch = fullText.match(/\|\|\|FOCUS\|\|\|([\s\S]*?)(?=\|\|\|CLARIFICATION\|\|\||$)/);
-                const clarificationMatch = fullText.match(/\|\|\|CLARIFICATION\|\|\|([\s\S]*?)(?=\|\|\|WORD\|\|\||$)/);
-                const wordMatch = fullText.match(/\|\|\|WORD\|\|\|([\s\S]*)/);
                 
-                const newContent: BriefingContent = {
-                    focus: focusMatch ? focusMatch[1].trim() : '加载失败，请刷新。',
-                    clarification: clarificationMatch ? clarificationMatch[1].trim() : '加载失败，请刷新。',
-                    word: wordMatch ? wordMatch[1].trim() : '加载失败，请刷新。',
-                };
-                const newCache: BriefingCache = {
-                    content: newContent,
-                    dailyNote: getRandomItem(DAILY_NOTES),
-                    timestamp: Date.now()
-                };
-                setBriefingCache(newCache);
-                localStorage.setItem('aiDashboardBriefing', JSON.stringify(newCache));
-            } else {
-                // FIX: Check promise status before accessing 'reason' to resolve type error.
-                if (briefingResult.status === 'rejected') {
-                    console.warn('Briefing generation failed:', briefingResult.reason);
-                } else {
-                    console.warn('Briefing generation failed: Received empty content.');
-                }
-                const fallbackContent = getRandomItem(FALLBACK_BRIEFING_CONTENTS);
-                const newCache: BriefingCache = {
-                    content: fallbackContent,
-                    dailyNote: getRandomItem(DAILY_NOTES),
-                    timestamp: Date.now()
-                };
-                setBriefingCache(newCache);
-                localStorage.setItem('aiDashboardBriefing', JSON.stringify(newCache));
+                const finalContent: T = isJson ? JSON.parse(fullText.trim() || '{}') as T : fullText as T;
+                setState({ content: finalContent, isLoading: false, thinkingText: '', isThinkingComplete: true });
+                return finalContent;
+            } catch (error) {
+                console.error(`Failed to fetch section:`, error);
+                setState({ content: fallbackContent, isLoading: false, thinkingText: '', isThinkingComplete: true });
+                return fallbackContent;
             }
-            setIsBriefingLoading(false);
+        };
 
-            // Handle Sentence Result
-            if (sentenceResult.status === 'fulfilled' && sentenceResult.value) {
-                const sentenceData: SentenceAnalysisData = JSON.parse(sentenceResult.value.trim());
-                const newSentenceCache: SentenceCache = { content: sentenceData, timestamp: Date.now() };
-                setSentenceCache(newSentenceCache);
-                localStorage.setItem('aiDashboardSentence', JSON.stringify(newSentenceCache));
-            } else {
-                // FIX: Check promise status before accessing 'reason' to resolve type error.
-                if (sentenceResult.status === 'rejected') {
-                    console.warn('Sentence generation failed:', sentenceResult.reason);
-                } else {
-                    console.warn('Sentence generation failed: Received empty content.');
-                }
-                const fallbackSentence = getRandomItem(FALLBACK_SENTENCE_DATA);
-                const newSentenceCache: SentenceCache = { content: fallbackSentence, timestamp: Date.now() };
-                setSentenceCache(newSentenceCache);
-                localStorage.setItem('aiDashboardSentence', JSON.stringify(newSentenceCache));
-            }
-        } catch (err) {
-            console.error("An unexpected error occurred during AI fetch:", err);
-        } finally {
-            setIsBriefingLoading(false);
-            setIsSentenceLoading(false);
+        await Promise.all([
+            fetchSection<string>({ prompt: prompts.focus, setState: setFocusState, fallbackContent: getRandomItem(FALLBACK_BRIEFING_CONTENTS).focus }),
+            fetchSection<string>({ prompt: prompts.clarification, setState: setClarificationState, fallbackContent: getRandomItem(FALLBACK_BRIEFING_CONTENTS).clarification }),
+            fetchSection<string>({ prompt: prompts.word, setState: setWordState, fallbackContent: getRandomItem(FALLBACK_BRIEFING_CONTENTS).word }),
+            fetchSection<SentenceAnalysisData>({ prompt: prompts.sentence, setState: setSentenceState, isJson: true, jsonSchema: sentenceResponseSchema, fallbackContent: getRandomItem(FALLBACK_SENTENCE_DATA) }),
+            fetchSection<string>({ prompt: prompts.dailyNote, setState: setDailyNoteState, fallbackContent: "星光不问赶路人，时光不负有心人。" })
+        ]);
+
+    }, []);
+
+    // --- Initialization ---
+    useEffect(() => {
+        try {
+            const cachedQuestion = localStorage.getItem('aiDashboardQuestion');
+            if (cachedQuestion) setQuestionCache(JSON.parse(cachedQuestion));
+            fetchBriefing(); // Always fetch fresh data on load
+        } catch (error) { 
+            console.error("Failed to read from localStorage, fetching fresh data.", error); 
+            fetchBriefing();
         }
-    }, [sentenceCache]);
-
+    }, [fetchBriefing]);
+    
     const fetchQuestion = useCallback(async () => {
         setIsQuestionLoading(true);
         setShowQuestionAnswer(false);
@@ -256,53 +165,41 @@ ${prompts.word}`;
     }, []);
 
     // --- Briefing Card Renderers ---
-    const FocusRenderer = ({ content }: { content: string }) => {
-        if (!content) return <div className="h-full bg-slate-200 rounded animate-pulse"></div>;
+    const FocusRenderer = ({ content, isStreaming }: { content: string, isStreaming: boolean }) => {
         const items = content.split('\n').map(s => s.trim()).filter(s => s.startsWith('- ') || s.startsWith('* '));
         return (
-            <ul className="space-y-3 text-lg">
-                {items.map((item, index) => (
-                    <li key={index} className="flex items-start">
-                        <span className="text-green-600 font-bold mr-3 mt-1 text-xl">›</span>
-                        <span className="text-slate-800">{item.substring(2)}</span>
-                    </li>
-                ))}
-            </ul>
+            <div>
+                <ul className="space-y-3 text-lg">
+                    {items.map((item, index) => (
+                        <li key={index} className="flex items-start">
+                            <span className="text-green-600 font-bold mr-3 mt-1 text-xl">›</span>
+                            <span className="text-slate-800">{item.substring(2)}</span>
+                        </li>
+                    ))}
+                </ul>
+                {isStreaming && <span className="inline-block animate-blink">▋</span>}
+            </div>
         );
     };
     
-    const ClarificationRenderer = ({ content }: { content: string }) => {
-        if (!content) return <div className="h-full bg-slate-200 rounded animate-pulse"></div>;
-    
+    const ClarificationRenderer = ({ content, isStreaming }: { content: string, isStreaming: boolean }) => {
         const match = content.match(/\*\*(.*?)\*\*.*?\*\*(.*?)\*\*:\s*([\s\S]*)/);
     
         if (!match) {
             return (
                 <div className="text-lg text-left">
                     <SimpleMarkdownRenderer text={content} highlightClassName="font-bold text-amber-800" />
+                    {isStreaming && <span className="inline-block animate-blink">▋</span>}
                 </div>
             );
         }
     
         const [, term1, term2, explanation] = match;
-    
-        const highlightExplanation = (text: string, t1: string, t2: string) => {
-            const base1 = t1.replace('矛盾', '');
-            const base2 = t2.replace('矛盾', '');
-            
-            const regex = new RegExp(`(${base1}|${base2})`, 'g');
-            const parts = text.split(regex);
-    
-            return parts.map((part, index) => {
-                if (part === base1) {
-                    return <strong key={index} className="font-semibold text-green-700">{part}</strong>;
-                }
-                if (part === base2) {
-                    return <strong key={index} className="font-semibold text-purple-700">{part}</strong>;
-                }
+        const highlightExplanation = (text: string) => text.split(new RegExp(`(${term1}|${term2})`, 'g')).map((part, index) => {
+                if (part === term1) return <strong key={index} className="font-semibold text-green-700">{part}</strong>;
+                if (part === term2) return <strong key={index} className="font-semibold text-purple-700">{part}</strong>;
                 return part;
-            });
-        };
+        });
     
         return (
             <div className="text-left flex flex-col justify-center h-full text-lg">
@@ -312,15 +209,14 @@ ${prompts.word}`;
                     <strong className="font-bold text-purple-700">{term2}</strong>
                 </p>
                 <div className="text-slate-700 leading-relaxed pt-4 border-t border-slate-200/80">
-                    {highlightExplanation(explanation, term1, term2)}
+                    {highlightExplanation(explanation)}
+                    {isStreaming && <span className="inline-block animate-blink">▋</span>}
                 </div>
             </div>
         );
     };
 
-    const WordRenderer = ({ content }: { content: string }) => {
-        if (!content) return <div className="h-full bg-slate-200 rounded animate-pulse"></div>;
-
+    const WordRenderer = ({ content, isStreaming }: { content: string, isStreaming: boolean }) => {
         const lines = content.split('\n').filter(line => line.trim() !== '');
         const wordLine = lines[0] || '';
         const enLine = lines.find(l => l.toUpperCase().startsWith('EN:')) || '';
@@ -335,13 +231,8 @@ ${prompts.word}`;
         const highlightWordInSentence = (sentence: string, wordToHighlight: string) => {
             if (!sentence || !wordToHighlight) return sentence;
             const regex = new RegExp(`\\b(${wordToHighlight.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})\\b`, 'gi');
-            const parts = sentence.split(regex);
-            return parts.map((part, i) =>
-                i % 2 === 1 ? (
-                    <strong key={i} className="text-sky-700 font-bold bg-sky-100/80 px-1 rounded">{part}</strong>
-                ) : (
-                    part
-                )
+            return sentence.split(regex).map((part, i) =>
+                i % 2 === 1 ? <strong key={i} className="text-sky-700 font-bold bg-sky-100/80 px-1 rounded">{part}</strong> : part
             );
         };
 
@@ -355,19 +246,38 @@ ${prompts.word}`;
                     {en && <p className="text-slate-600"><strong className="font-semibold text-slate-800">英文释义:</strong> {en}</p>}
                     {ex && <p className="text-slate-600"><strong className="font-semibold text-slate-800">例句:</strong> {highlightWordInSentence(ex, word)}</p>}
                 </div>
+                {isStreaming && <span className="inline-block animate-blink">▋</span>}
+            </div>
+        );
+    };
+    
+    const DailyNoteRenderer = ({ content, isStreaming }: { content: string; isStreaming: boolean }) => {
+        if (isStreaming) {
+            return (
+                <div className="text-xl leading-relaxed text-left">
+                    {content}
+                    <span className="inline-block animate-blink">▋</span>
+                </div>
+            );
+        }
+    
+        return (
+            <div className="text-xl leading-relaxed text-left">
+                {content.split(/(?<=[，。！？、；：])/)
+                  .filter(s => s.trim())
+                  .map((line, index) => (
+                    <span key={index} className="block opacity-0 animate-fadeIn" style={{ animationDelay: `${index * 200}ms` }}>{line.trim()}</span>
+                ))}
             </div>
         );
     };
 
     const renderQuestion = () => {
         const contentToRender = streamedQuestion || questionCache?.content;
-
         if (!contentToRender && !isQuestionLoading) {
             return <p className="text-slate-500 text-sm mt-4">点击上方按钮，生成一道题目来检验学习成果吧！</p>;
         }
-        
         if (!contentToRender) return null;
-
         const [questionPart, answerPart] = contentToRender.split('=====');
         return (
             <div className="mt-4 space-y-4">
@@ -391,91 +301,48 @@ ${prompts.word}`;
         );
     };
 
+    const isLoading = focusState.isLoading || clarificationState.isLoading || wordState.isLoading || sentenceState.isLoading || dailyNoteState.isLoading;
+
     return (
         <div className="space-y-8 animate-fadeIn">
             {/* Module Navigation */}
             <div>
                 <h2 className="text-2xl font-bold text-slate-700 mb-4">功能模块</h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                     <ModuleCard 
-                        icon={<ClockIcon className="h-8 w-8 text-white" />}
-                        title="专注花园"
-                        description="用专注浇灌，让花园成长"
-                        color="from-green-400 to-cyan-500"
-                        onClick={() => onNavigate('focus_garden')}
-                    />
-                     <ModuleCard 
-                        icon={<JournalIcon className="h-8 w-8 text-white" />}
-                        title="心情日历"
-                        description="记录心情，AI为你提供专属建议"
-                        color="from-indigo-400 to-violet-500"
-                        onClick={() => onNavigate('mood_journal')}
-                    />
-                    <ModuleCard 
-                        icon={<BookIcon className="h-8 w-8 text-white" />}
-                        title="英语作文批改"
-                        description="AI 智能批改，提升写作水平"
-                        color="from-sky-400 to-blue-500"
-                        onClick={() => onNavigate('english')}
-                    />
-                    <ModuleCard 
-                        icon={<PoliticsIcon className="h-8 w-8 text-white" />}
-                        title="政治速记卡"
-                        description="重点概念，轻松掌握"
-                        color="from-red-400 to-rose-500"
-                        onClick={() => onNavigate('politics')}
-                    />
-                    <ModuleCard 
-                        icon={<MedicineIcon className="h-8 w-8 text-white" />}
-                        title="西综计算模拟"
-                        description="生化代谢，在线演算"
-                        color="from-teal-400 to-emerald-500"
-                        onClick={() => onNavigate('medicine')}
-                    />
-                     <ModuleCard 
-                        icon={<PuzzleIcon className="h-8 w-8 text-white" />}
-                        title="趣味记忆牌"
-                        description="翻转卡片，挑战你的记忆力"
-                        color="from-amber-400 to-orange-500"
-                        onClick={() => onNavigate('memory_game')}
-                    />
+                     <ModuleCard icon={<ClockIcon className="h-8 w-8 text-white" />} title="专注花园" description="用专注浇灌，让花园成长" color="from-green-400 to-cyan-500" onClick={() => onNavigate('focus_garden')} />
+                     <ModuleCard icon={<JournalIcon className="h-8 w-8 text-white" />} title="心情日历" description="记录心情，AI为你提供专属建议" color="from-indigo-400 to-violet-500" onClick={() => onNavigate('mood_journal')} />
+                     <ModuleCard icon={<BookIcon className="h-8 w-8 text-white" />} title="英语作文批改" description="AI 智能批改，提升写作水平" color="from-sky-400 to-blue-500" onClick={() => onNavigate('english')} />
+                     <ModuleCard icon={<PoliticsIcon className="h-8 w-8 text-white" />} title="政治速记卡" description="重点概念，轻松掌握" color="from-red-400 to-rose-500" onClick={() => onNavigate('politics')} />
+                     <ModuleCard icon={<MedicineIcon className="h-8 w-8 text-white" />} title="西综计算模拟" description="生化代谢，在线演算" color="from-teal-400 to-emerald-500" onClick={() => onNavigate('medicine')} />
+                     <ModuleCard icon={<PuzzleIcon className="h-8 w-8 text-white" />} title="趣味记忆牌" description="挑战你的记忆力" color="from-amber-400 to-orange-500" onClick={() => onNavigate('memory_game')} />
                 </div>
             </div>
 
             {/* AI Briefing Section */}
-            <div ref={briefingRef} className="relative bg-white p-6 rounded-2xl shadow-lg border border-slate-200/80">
-                {(isBriefingLoading || isSentenceLoading) && <LoadingOverlay thinkingText={isBriefingThinkingComplete ? undefined : briefingThinkingText} showFunFacts={true} />}
+            <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200/80">
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-2xl font-bold text-slate-700">AI 速递</h2>
-                    <button onClick={() => fetchBriefing(true)} disabled={isBriefingLoading || isSentenceLoading} className="flex items-center gap-2 bg-slate-200 text-slate-700 font-bold py-1.5 px-4 rounded-full hover:bg-slate-300 transition text-sm disabled:opacity-50">
+                    <button onClick={() => fetchBriefing()} disabled={isLoading} className="flex items-center gap-2 bg-slate-200 text-slate-700 font-bold py-1.5 px-4 rounded-full hover:bg-slate-300 transition text-sm disabled:opacity-50">
                         <RefreshIcon className="h-4 w-4"/> 刷新
                     </button>
                 </div>
                 <div className="space-y-6">
                     <div className="grid grid-cols-2 gap-4 items-start">
-                         <BriefingCard title="今日重点" icon={<FeatherIcon className="h-6 w-6 mr-2 text-green-500"/>}>
-                            <FocusRenderer content={briefingCache?.content.focus || ''} />
+                         <BriefingCard title="今日重点" icon={<FeatherIcon className="h-6 w-6 mr-2 text-green-500"/>} isLoading={focusState.isLoading} isThinkingComplete={focusState.isThinkingComplete} thinkingText={focusState.thinkingText}>
+                            <FocusRenderer content={focusState.content || ''} isStreaming={focusState.isLoading && focusState.isThinkingComplete} />
                          </BriefingCard>
-                         <BriefingCard title="每日寄语" icon={<SparklesIcon className="h-6 w-6 mr-2 text-rose-500"/>} isNote={true}>
-                            {briefingCache ? (
-                                <div className="text-xl leading-relaxed text-left">
-                                    {briefingCache.dailyNote.replace('考研人的每日寄语：', '').split(/(?<=[，。！？、；：])/)
-                                      .filter(s => s.trim())
-                                      .map((line, index) => (
-                                        <span key={index} className="block opacity-0 animate-fadeIn" style={{ animationDelay: `${index * 200}ms` }}>{line.trim()}</span>
-                                    ))}
-                                </div>
-                            ) : <div className="h-full bg-slate-200 rounded animate-pulse"></div>}
+                         <BriefingCard title="每日寄语" icon={<SparklesIcon className="h-6 w-6 mr-2 text-rose-500"/>} isNote={true} isLoading={dailyNoteState.isLoading} isThinkingComplete={dailyNoteState.isThinkingComplete} thinkingText={dailyNoteState.thinkingText}>
+                            <DailyNoteRenderer content={dailyNoteState.content || ''} isStreaming={dailyNoteState.isLoading && dailyNoteState.isThinkingComplete} />
                          </BriefingCard>
                     </div>
-                     <BriefingCard title="每日长难句" icon={<BookIcon className="h-6 w-6 mr-2 text-purple-500"/>}>
-                        <SentenceAnalysisCard data={sentenceCache?.content} isLoading={isSentenceLoading} />
+                     <BriefingCard title="每日长难句" icon={<BookIcon className="h-6 w-6 mr-2 text-purple-500"/>} isLoading={sentenceState.isLoading} isThinkingComplete={sentenceState.isThinkingComplete} thinkingText={sentenceState.thinkingText}>
+                        <SentenceAnalysisCard data={sentenceState.content} isLoading={sentenceState.isLoading} />
                      </BriefingCard>
-                     <BriefingCard title="概念辨析" icon={<LightbulbIcon className="h-6 w-6 mr-2 text-amber-500"/>} className="min-h-0">
-                        <ClarificationRenderer content={briefingCache?.content.clarification || ''} />
+                     <BriefingCard title="概念辨析" icon={<LightbulbIcon className="h-6 w-6 mr-2 text-amber-500"/>} className="min-h-0" isLoading={clarificationState.isLoading} isThinkingComplete={clarificationState.isThinkingComplete} thinkingText={clarificationState.thinkingText}>
+                        <ClarificationRenderer content={clarificationState.content || ''} isStreaming={clarificationState.isLoading && clarificationState.isThinkingComplete} />
                      </BriefingCard>
-                     <BriefingCard title="每日一词" icon={<TranslationIcon className="h-6 w-6 mr-2 text-sky-500"/>}>
-                        <WordRenderer content={briefingCache?.content.word || ''} />
+                     <BriefingCard title="每日一词" icon={<TranslationIcon className="h-6 w-6 mr-2 text-sky-500"/>} isLoading={wordState.isLoading} isThinkingComplete={wordState.isThinkingComplete} thinkingText={wordState.thinkingText}>
+                        <WordRenderer content={wordState.content || ''} isStreaming={wordState.isLoading && wordState.isThinkingComplete} />
                      </BriefingCard>
                 </div>
             </div>
@@ -485,7 +352,8 @@ ${prompts.word}`;
             
             {/* AI Daily Question Section */}
             <div className="relative bg-white p-6 rounded-2xl shadow-lg border border-slate-200/80">
-                {isQuestionLoading && !streamedQuestion && <LoadingOverlay showFunFacts={false} />}
+                {/* FIX: Removed invalid 'isThinkingComplete' prop from LoadingOverlay. */}
+                {isQuestionLoading && !streamedQuestion && <LoadingOverlay showFunFacts={true} />}
                 <h3 className="flex items-center text-xl font-bold text-slate-700 mb-4">
                     <BookIcon className="h-6 w-6 mr-2 text-indigo-500"/>
                     知识点自测
