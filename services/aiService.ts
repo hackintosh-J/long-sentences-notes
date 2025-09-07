@@ -1,3 +1,6 @@
+// This file is responsible for communicating with the AI APIs (Gemini and Zhipu).
+// It abstracts the specific API calls so other components don't need to know the details.
+
 import { GoogleGenAI, Type as GeminiType } from "@google/genai";
 import { GEMINI_API_KEY_B64, ZHIPU_API_KEY_B64 } from '../apiKey';
 import type { ModelProvider } from '../types';
@@ -78,7 +81,9 @@ export const generateContent = async (config: GenerateContentConfig): Promise<st
                 'Authorization': `Bearer ${apiKey}`
             };
             const body: any = {
-                model: 'glm-4.5',
+                // FIX: Switched to the more cost-effective 'glm-4.5-flash' model for non-streaming tasks
+                // to prevent "insufficient balance" errors on simple JSON formatting jobs.
+                model: 'glm-4.5-flash',
                 messages: [{ role: 'user', content: config.prompt }],
                 temperature: 0.7
             };
@@ -183,9 +188,11 @@ export async function* generateContentStream(prompt: string, timeout?: number, j
                 meta: { "enable_think": true },
                 temperature: 0.7,
             };
-            if (jsonSchema) {
-                body.response_format = { type: 'json_object' };
-            }
+            // FIX: Removed conditional JSON format for streaming. It was causing the thinking chain to be disabled.
+            // The prompt has been reinforced to handle JSON output instead.
+            // if (jsonSchema) {
+            //     body.response_format = { type: 'json_object' };
+            // }
             const response = await fetch("https://open.bigmodel.cn/api/paas/v4/chat/completions", {
                 method: 'POST',
                 headers,
