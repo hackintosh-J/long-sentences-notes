@@ -188,6 +188,14 @@ export const FeatherIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   </svg>
 );
 
+// Settings Icon
+export const SettingsIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-1.008 1.11-1.226.55-.218 1.192-.218 1.742 0 .55.218 1.02.684 1.11 1.226m-6.84 3.322 2.438 2.438a2.25 2.25 0 0 0 3.182 0l2.438-2.438m-8.062 8.062 2.438-2.438a2.25 2.25 0 0 1 3.182 0l2.438 2.438" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zM12 7.5v.008" />
+  </svg>
+);
+
 
 // --- Memory Game Icons ---
 

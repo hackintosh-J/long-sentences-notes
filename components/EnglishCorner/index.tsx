@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
-import { GEMINI_API_KEY_B64 } from '../../apiKey';
+import { Type as GeminiType } from "@google/genai";
+import { generateContent } from '../../services/aiService';
 import { ArrowLeftIcon, SparklesIcon, SpinnerIcon } from '../icons';
 import type { CorrectionResponse, CorrectionAnnotation } from '../../types';
 import AnnotatedSpan from './InteractiveWord';
@@ -20,7 +20,6 @@ type AnnotationWithIndex = CorrectionAnnotation & {
 };
 
 const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
-    const [ai, setAi] = useState<GoogleGenAI | null>(null);
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [result, setResult] = useState<CorrectionResponse | null>(null);
@@ -33,19 +32,9 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
     } | null>(null);
 
     const resultContainerRef = useRef<HTMLDivElement>(null);
-    
-    useEffect(() => {
-        try {
-            const apiKey = atob(GEMINI_API_KEY_B64);
-            setAi(new GoogleGenAI({ apiKey }));
-        } catch (e) {
-            console.error("Failed to initialize GoogleGenAI:", e);
-            setError("AI服务初始化失败，请检查API Key配置。");
-        }
-    }, []);
 
     const handleSubmit = async () => {
-        if (!ai || !inputText.trim()) return;
+        if (!inputText.trim()) return;
 
         setIsLoading(true);
         setResult(null);
@@ -72,19 +61,19 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
         Return your analysis ONLY in the specified JSON format. The entire response, including all explanations and justifications, must be in Chinese.`;
         
         const responseSchema = {
-            type: Type.OBJECT,
+            type: GeminiType.OBJECT,
             properties: {
-                overallScore: { type: Type.NUMBER, description: "A score from 0 to 20." },
-                scoreBasis: { type: Type.STRING, description: "Justification for the score, in Chinese." },
+                overallScore: { type: GeminiType.NUMBER, description: "A score from 0 to 20." },
+                scoreBasis: { type: GeminiType.STRING, description: "Justification for the score, in Chinese." },
                 annotations: {
-                    type: Type.ARRAY,
+                    type: GeminiType.ARRAY,
                     description: "List of annotations on the text.",
                     items: {
-                        type: Type.OBJECT,
+                        type: GeminiType.OBJECT,
                         properties: {
-                            text: { type: Type.STRING, description: "The exact text from the essay to be highlighted." },
-                            type: { type: Type.STRING, description: "Category: GOOD, ERROR, or SUGGESTION." },
-                            explanation: { type: Type.STRING, description: "Explanation or correction for the highlighted text, in Chinese." }
+                            text: { type: GeminiType.STRING, description: "The exact text from the essay to be highlighted." },
+                            type: { type: GeminiType.STRING, description: "Category: GOOD, ERROR, or SUGGESTION." },
+                            explanation: { type: GeminiType.STRING, description: "Explanation or correction for the highlighted text, in Chinese." }
                         },
                         required: ["text", "type", "explanation"]
                     }
@@ -94,17 +83,12 @@ const EnglishCorner: React.FC<EnglishCornerProps> = ({ onBack }) => {
         };
 
         try {
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: prompt,
-                config: {
-                    responseMimeType: "application/json",
-                    responseSchema,
-                }
+            const jsonStr = await generateContent({
+                prompt: prompt,
+                jsonSchema: responseSchema
             });
 
-            const jsonStr = response.text.trim();
-            const data: CorrectionResponse = JSON.parse(jsonStr);
+            const data: CorrectionResponse = JSON.parse(jsonStr.trim());
             setResult(data);
 
         } catch (e) {

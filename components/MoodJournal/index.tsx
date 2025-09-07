@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { GoogleGenAI } from "@google/genai";
-import { GEMINI_API_KEY_B64 } from '../../apiKey';
+import { generateContent } from '../../services/aiService';
 import { ArrowLeftIcon, SparklesIcon, SpinnerIcon } from '../icons';
 import type { Mood, MoodEntry } from '../../types';
-// FIX: Corrected import path to resolve module ambiguity.
 import { MOODS_CONFIG } from '../../constants/mood';
 import { dateToKey } from '../../utils/helpers';
 import SimpleMarkdownRenderer from '../common/SimpleMarkdownRenderer';
@@ -27,7 +25,6 @@ const MoodJournal: React.FC<MoodJournalProps> = ({ onBack }) => {
     const [selectedMood, setSelectedMood] = useState<Mood | null>(null);
     const [journalText, setJournalText] = useState('');
 
-    const [ai, setAi] = useState<GoogleGenAI | null>(null);
     const [aiSummary, setAiSummary] = useState('');
     const [isLoadingSummary, setIsLoadingSummary] = useState(true);
 
@@ -36,14 +33,6 @@ const MoodJournal: React.FC<MoodJournalProps> = ({ onBack }) => {
             const savedEntries = localStorage.getItem(STORAGE_KEY);
             if (savedEntries) setEntries(JSON.parse(savedEntries));
         } catch (error) { console.error("Failed to load mood entries", error); }
-
-        try {
-            if (GEMINI_API_KEY_B64) {
-                const apiKey = atob(GEMINI_API_KEY_B64);
-                // FIX: Corrected initialization of GoogleGenAI client according to guidelines.
-                setAi(new GoogleGenAI({ apiKey }));
-            }
-        } catch (e) { console.error("Failed to initialize GoogleGenAI:", e); }
     }, []);
 
     useEffect(() => {
@@ -55,7 +44,7 @@ const MoodJournal: React.FC<MoodJournalProps> = ({ onBack }) => {
     useEffect(() => {
         const sortedEntries = Object.values(entries).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         
-        if (!ai || sortedEntries.length < 3) {
+        if (sortedEntries.length < 3) {
             setIsLoadingSummary(false);
             setAiSummary('');
             return;
@@ -97,9 +86,7 @@ ${context}
 格式示例: **总结:** [你的总结]|||**小建议:** [你的建议]`;
 
             try {
-                // FIX: Switched to the correct model name 'gemini-2.5-flash' from deprecated 'gemini-pro'.
-                const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-                const fullText = response.text;
+                const fullText = await generateContent({ prompt });
                 setAiSummary(fullText);
                 localStorage.setItem(SUMMARY_CACHE_KEY, JSON.stringify({ summary: fullText, signature: dataSignature }));
             } catch (error) {
@@ -111,7 +98,7 @@ ${context}
         };
 
         fetchOrLoadSummary();
-    }, [ai, entries]);
+    }, [entries]);
 
     const saveEntries = (updatedEntries: Record<string, MoodEntry>) => {
         try {

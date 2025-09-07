@@ -1,6 +1,6 @@
 // FIX: Removed invalid import 'aistudiotw'.
 import React, { useState, useEffect } from 'react';
-import { BookIcon, HeartIcon } from './components/icons';
+import { BookIcon, HeartIcon, SettingsIcon } from './components/icons';
 import Dashboard from './components/Dashboard';
 import EnglishCorner from './components/EnglishCorner';
 import PoliticsCorner from './components/PoliticsCorner';
@@ -8,12 +8,18 @@ import MedicineCorner from './components/MedicineCorner';
 import FocusGarden from './components/FocusGarden';
 import MoodJournal from './components/MoodJournal';
 import MemoryGame from './components/MemoryGame';
+import Settings from './components/Settings';
+import { initializeAiService } from './services/aiService';
 import type { Page } from './types';
 
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [previousPage, setPreviousPage] = useState<Page | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
+
+  useEffect(() => {
+    initializeAiService(); // Initialize AI services on app load
+  }, []);
 
   useEffect(() => {
     if (previousPage !== null) {
@@ -41,6 +47,7 @@ const App: React.FC = () => {
     focus_garden: <FocusGarden onBack={() => navigateTo('dashboard')} />,
     mood_journal: <MoodJournal onBack={() => navigateTo('dashboard')} />,
     memory_game: <MemoryGame onBack={() => navigateTo('dashboard')} />,
+    settings: <Settings onBack={() => navigateTo('dashboard')} />,
   };
 
   return (
@@ -54,9 +61,14 @@ const App: React.FC = () => {
                 考研加油小站
               </h1>
             </div>
-            <p className="text-sm text-slate-500 font-medium flex items-center gap-1.5">
-              For a friend's success <HeartIcon className="h-4 w-4 text-red-400" />
-            </p>
+            <div className="flex items-center gap-4">
+              <p className="text-sm text-slate-500 font-medium flex items-center gap-1.5">
+                For a friend's success <HeartIcon className="h-4 w-4 text-red-400" />
+              </p>
+              <button onClick={() => navigateTo('settings')} title="设置" className="text-slate-500 hover:text-rose-500 transition-colors">
+                <SettingsIcon className="h-6 w-6" />
+              </button>
+            </div>
           </div>
         </div>
       </header>

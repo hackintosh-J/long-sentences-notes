@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
-import { GEMINI_API_KEY_B64 } from '../../apiKey';
+import { Type as GeminiType } from "@google/genai";
 import { DAILY_NOTES, FUN_FACTS } from '../../constants';
 import { FALLBACK_BRIEFING_CONTENTS, FALLBACK_SENTENCE_DATA } from '../../constants/fallbackContent';
+import { generateContent, generateContentStream } from '../../services/aiService';
 import { 
     BookIcon, PoliticsIcon, MedicineIcon, SparklesIcon, ClockIcon, JournalIcon, PuzzleIcon,
     RefreshIcon, SpinnerIcon, FeatherIcon, LightbulbIcon, TranslationIcon
@@ -14,7 +14,6 @@ import LoadingOverlay from './LoadingOverlay';
 import ModuleCard from './ModuleCard';
 import BriefingCard from './BriefingCard';
 import SentenceAnalysisCard from './SentenceAnalysisCard';
-import Tooltip from '../EnglishCorner/Tooltip';
 
 
 interface DashboardProps {
@@ -33,7 +32,6 @@ type SentenceCache = { content: SentenceAnalysisData, timestamp: number };
 
 // --- Main Dashboard Component ---
 const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
-    const [ai, setAi] = useState<GoogleGenAI | null>(null);
     const briefingRef = useRef<HTMLDivElement>(null);
     
     // AI Briefing State
@@ -54,11 +52,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     // --- Initialization ---
     useEffect(() => {
         try {
-            const apiKey = atob(GEMINI_API_KEY_B64);
-            setAi(new GoogleGenAI({ apiKey }));
-        } catch (e) { console.error("Failed to initialize GoogleGenAI:", e); }
-
-        try {
             const cachedBriefing = localStorage.getItem('aiDashboardBriefing');
             if (cachedBriefing) setBriefingCache(JSON.parse(cachedBriefing));
 
@@ -66,22 +59,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             if (cachedQuestion) setQuestionCache(JSON.parse(cachedQuestion));
 
             const cachedSentence = localStorage.getItem('aiDashboardSentence');
-            if (cachedSentence) setSentenceCache(JSON.parse(cachedSentence));
-            else setIsSentenceLoading(true);
-
+            if (cachedSentence) {
+                 setSentenceCache(JSON.parse(cachedSentence));
+            } else {
+                fetchBriefing(true); // Fetch all if sentence is missing
+            }
         } catch (error) { console.error("Failed to read from localStorage", error); }
     }, []);
-
-    useEffect(() => {
-        if (ai && (!briefingCache || !sentenceCache)) {
-             fetchBriefing(true); // Fetch all briefing content if anything is missing
-        }
-    }, [ai]);
     
     // --- AI Fetching and Caching Logic ---
     const fetchBriefing = useCallback(async (forceRefresh = false) => {
-        if (!ai) return;
-        
         setIsBriefingLoading(true);
         if(forceRefresh) {
             setIsSentenceLoading(true);
@@ -110,18 +97,18 @@ ${prompts.clarification}
 ${prompts.word}`;
 
         const sentenceResponseSchema = {
-            type: Type.OBJECT,
+            type: GeminiType.OBJECT,
             properties: {
-                sentence: { type: Type.STRING },
-                translation: { type: Type.STRING },
+                sentence: { type: GeminiType.STRING },
+                translation: { type: GeminiType.STRING },
                 components: {
-                    type: Type.ARRAY,
+                    type: GeminiType.ARRAY,
                     items: {
-                        type: Type.OBJECT,
+                        type: GeminiType.OBJECT,
                         properties: {
-                            text: { type: Type.STRING },
-                            type: { type: Type.STRING, enum: ['subject', 'predicate', 'object', 'attributive', 'adverbial', 'complement', 'clause', 'phrase', 'connective'] },
-                            explanation: { type: Type.STRING },
+                            text: { type: GeminiType.STRING },
+                            type: { type: GeminiType.STRING, enum: ['subject', 'predicate', 'object', 'attributive', 'adverbial', 'complement', 'clause', 'phrase', 'connective'] },
+                            explanation: { type: GeminiType.STRING },
                         },
                         required: ['text', 'type', 'explanation']
                     }
@@ -137,22 +124,18 @@ ${prompts.word}`;
 
         try {
             const generationPromise = Promise.all([
-                (forceRefresh || !briefingCache) ? ai.models.generateContent({ model: 'gemini-2.5-flash', contents: combinedPrompt }) : Promise.resolve(null),
-                (forceRefresh || !sentenceCache) ? ai.models.generateContent({
-                    model: 'gemini-2.5-flash',
-                    contents: prompts.sentence,
-                    config: { responseMimeType: "application/json", responseSchema: sentenceResponseSchema }
-                }) : Promise.resolve(null)
+                (forceRefresh || !briefingCache) ? generateContent({ prompt: combinedPrompt }) : Promise.resolve(null),
+                (forceRefresh || !sentenceCache) ? generateContent({ prompt: prompts.sentence, jsonSchema: sentenceResponseSchema }) : Promise.resolve(null)
             ]);
 
-            const [briefingResponse, sentenceResponse] = await Promise.race([
+            const [briefingResponseText, sentenceResponseText] = await Promise.race([
                 generationPromise,
                 timeoutPromise,
-            ]) as [any, any];
+            ]) as [string | null, string | null];
 
 
-            if (briefingResponse) {
-                const fullText = briefingResponse.text;
+            if (briefingResponseText) {
+                const fullText = briefingResponseText;
                 const focusMatch = fullText.match(/\|\|\|FOCUS\|\|\|([\s\S]*?)(?=\|\|\|CLARIFICATION\|\|\||$)/);
                 const clarificationMatch = fullText.match(/\|\|\|CLARIFICATION\|\|\|([\s\S]*?)(?=\|\|\|WORD\|\|\||$)/);
                 const wordMatch = fullText.match(/\|\|\|WORD\|\|\|([\s\S]*)/);
@@ -171,8 +154,8 @@ ${prompts.word}`;
                 localStorage.setItem('aiDashboardBriefing', JSON.stringify(newCache));
             }
 
-            if(sentenceResponse){
-                const sentenceData: SentenceAnalysisData = JSON.parse(sentenceResponse.text.trim());
+            if(sentenceResponseText){
+                const sentenceData: SentenceAnalysisData = JSON.parse(sentenceResponseText.trim());
                 const newSentenceCache: SentenceCache = { content: sentenceData, timestamp: Date.now() };
                 setSentenceCache(newSentenceCache);
                 localStorage.setItem('aiDashboardSentence', JSON.stringify(newSentenceCache));
@@ -204,11 +187,9 @@ ${prompts.word}`;
             setIsBriefingLoading(false);
             setIsSentenceLoading(false);
         }
-    }, [ai, briefingCache, sentenceCache]);
+    }, [briefingCache, sentenceCache]);
 
     const fetchQuestion = useCallback(async () => {
-        if (!ai) return;
-
         setIsQuestionLoading(true);
         setLoadingFunFact(getRandomItem(FUN_FACTS));
         setShowQuestionAnswer(false);
@@ -219,16 +200,15 @@ ${prompts.word}`;
         const prompt = `As an expert in China's graduate school entrance exams for ${subject}, create one challenging multiple-choice question about a core concept. Provide four options (A, B, C, D). IMPORTANT: Do NOT bold, star, or otherwise emphasize the correct answer within the question or options. Use markdown for general emphasis if needed. Then, on a new line after a separator "=====", provide the correct answer and a detailed explanation for why the correct answer is right and the others are wrong. The entire response must be in Chinese.`;
         
         try {
-            const responseStream = await ai.models.generateContentStream({ model: 'gemini-2.5-flash', contents: prompt });
+            const responseStream = generateContentStream(prompt);
             
             let fullText = "";
             let firstChunkReceived = false;
-            for await (const chunk of responseStream) {
+            for await (const chunkText of responseStream) {
                 if (!firstChunkReceived) {
                     setIsQuestionLoading(false);
                     firstChunkReceived = true;
                 }
-                const chunkText = chunk.text;
                 if (chunkText) {
                     fullText += chunkText;
                     setStreamedQuestion(fullText);
@@ -243,7 +223,7 @@ ${prompts.word}`;
             setStreamedQuestion("抱歉，题目生成失败，请稍后再试。=====");
             setIsQuestionLoading(false);
         }
-    }, [ai]);
+    }, []);
 
     // --- Briefing Card Renderers ---
     const FocusRenderer = ({ content }: { content: string }) => {
@@ -474,7 +454,7 @@ ${prompts.word}`;
                     <BookIcon className="h-6 w-6 mr-2 text-indigo-500"/>
                     知识点自测
                 </h3>
-                <button onClick={fetchQuestion} disabled={isQuestionLoading || !ai} className="w-full sm:w-auto bg-indigo-500 text-white font-bold py-2 px-6 rounded-full hover:bg-indigo-600 transition-all duration-300 transform hover:scale-105 disabled:bg-slate-300 disabled:scale-100 flex items-center justify-center gap-2">
+                <button onClick={fetchQuestion} disabled={isQuestionLoading} className="w-full sm:w-auto bg-indigo-500 text-white font-bold py-2 px-6 rounded-full hover:bg-indigo-600 transition-all duration-300 transform hover:scale-105 disabled:bg-slate-300 disabled:scale-100 flex items-center justify-center gap-2">
                     {isQuestionLoading ? <><SpinnerIcon className="h-5 w-5"/> 正在出题...</> : (questionCache || streamedQuestion ? '换一道题' : '开始自测')}
                 </button>
                 {renderQuestion()}

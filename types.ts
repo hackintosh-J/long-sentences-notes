@@ -106,7 +106,8 @@ export interface MetabolicPathway {
 }
 
 // App Page Type
-export type Page = 'dashboard' | 'english' | 'politics' | 'medicine' | 'focus_garden' | 'mood_journal' | 'memory_game';
+export type Page = 'dashboard' | 'english' | 'politics' | 'medicine' | 'focus_garden' | 'mood_journal' | 'memory_game' | 'settings';
+export type ModelProvider = 'gemini' | 'zhipu';
 
 
 // Mood Journal Types
